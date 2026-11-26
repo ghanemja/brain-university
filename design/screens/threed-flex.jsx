@@ -40,7 +40,7 @@ function ThreeDFlex({ initialNode, visited, onClose, onPickNode }) {
 
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 100,
+      position: "fixed", top: "var(--overlay-top, 0px)", left: 0, right: 0, bottom: 0, zIndex: 100,
       background: "var(--c-bg)",
       display: "grid", gridTemplateColumns: "1fr 320px",
     }}>

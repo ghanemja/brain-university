@@ -41,7 +41,7 @@ const SLIDES = [
     tag: "02 · LEARN",
     title: "Ride stop to stop.",
     body:
-      "Learn plays your route as a train ride. Each platform board shows that stop's idea, and the card has the short version with Next stop. At an interchange you can change lines to a linked topic. Full lesson opens the whole lesson page, with its quiz and an interactive exercise.",
+      "Learn plays your route as a train ride. Each stop is taught in short parts (why it matters, the idea, how it works, the common mistakes, then a recall check), and each part has its own board along the platform: step through the lesson and the train rolls from board to board. Listen reads it aloud. At an interchange you can change lines; Full lesson has everything on one page.",
     highlight: "ride",
     tryIt: "ride",
     cta: "Open Learn",

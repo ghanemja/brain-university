@@ -178,6 +178,8 @@ const PORA = /*PORA_DATA*/null;
   const laneName = {}; D.layers.forEach(l => laneName[l.id] = l.name);
   const laneVar = id => `var(--lane-${id})`;
   const EMBED = /[?&]embed=bu\b/.test(location.search);
+  // Inside Train of Thought the Atlas stays light, like the rest of the learner app.
+  if (EMBED) document.documentElement.dataset.theme = "light";
   const $ = s => document.querySelector(s);
 
   // depth = longest prerequisite chain
@@ -296,7 +298,7 @@ const PORA = /*PORA_DATA*/null;
     const rel = (c.related || []).map(p => `<button class="tag" data-go="${p}">${C[p].name}</button>`).join("");
     const ex = (c.exercises || []).map(p => linkRow(D.exerciseBase.colab + p, exName(p), "Open in Colab")).join("");
     const lec = (c.lectures || []).map(l => { const L = D.lectures[l]; return linkRow(L.url, L.title, `${L.course} · ${L.n}`); }).join("");
-    const bu = EMBED ? `<button class="btn bu-link" data-bu="${id}" type="button">Walk the route here in Brain University</button>` : "";
+    const bu = EMBED ? `<button class="btn bu-link" data-bu="${id}" type="button">Ride the route here in Train of Thought</button>` : "";
     return `<div><div class="meta"><span style="color:${laneVar(c.layer)};font-weight:600">${laneName[c.layer]}</span><span>${c.kind}</span>${ch ? `<span>${c.ch === 0 ? "Getting started" : "Chapter " + c.ch}</span>` : `<span>assumed background</span>`}</div></div>
       <h2>${c.name}</h2><p>${c.summary}</p>
       ${ch ? `<div><h3>Read</h3><ul class="links">${linkRow(ch.url, ch.title, c.ch === 0 ? "Software" : "Ch " + c.ch)}</ul></div>` : ""}
@@ -317,7 +319,7 @@ const PORA = /*PORA_DATA*/null;
       <p>${b.blurb} This route skips ${route.known.length} concept${route.known.length === 1 ? "" : "s"} you already have and covers ${chs.size} chapter${chs.size === 1 ? "" : "s"} with ${nb} notebook${nb === 1 ? "" : "s"} to run.</p>
       <ol class="route">${route.steps.map(id => `<li><button data-go="${id}">${C[id].name}</button><small>${C[id].ch == null ? "background" : C[id].ch === 0 ? "SW" : "Ch " + C[id].ch}</small></li>`).join("")}</ol>
       <p class="note">Order follows the prerequisite links, then the book's chapter order. Tap any step for its reading, notebooks, and lectures.</p>
-      ${EMBED ? `<button class="btn bu-link" data-bu="${route.goal}" type="button">Walk this route in Brain University</button>` : ""}`;
+      ${EMBED ? `<button class="btn bu-link" data-bu="${route.goal}" type="button">Ride this route in Train of Thought</button>` : ""}`;
   };
   const intro = () => `<div class="meta"><span>How to use this</span></div><h2>Pick a concept, or plan a route</h2>
     <p>Each box is a concept from the book, placed in the part of the autonomy stack it belongs to. Lines run from a prerequisite to what it unlocks. Square boxes are classical methods, rounded ones are learned.</p>

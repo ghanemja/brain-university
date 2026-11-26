@@ -65,7 +65,7 @@ function OpenProblems({ onClose, onJumpToConcept }) {
   if (!window.OPEN_PROBLEMS) {
     return (
       <div style={{
-        position: "fixed", inset: 0, zIndex: 100,
+        position: "fixed", top: "var(--overlay-top, 0px)", left: 0, right: 0, bottom: 0, zIndex: 100,
         background: "var(--c-bg)", color: "var(--c-ink)",
         display: "grid", placeItems: "center", padding: 24, textAlign: "center",
       }}>
@@ -83,7 +83,7 @@ function OpenProblems({ onClose, onJumpToConcept }) {
 
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 100,
+      position: "fixed", top: "var(--overlay-top, 0px)", left: 0, right: 0, bottom: 0, zIndex: 100,
       background: "var(--c-bg)",
       display: "grid",
       gridTemplateColumns: narrow ? "1fr" : "minmax(320px, 26%) minmax(0, 1fr) minmax(320px, 28%)",

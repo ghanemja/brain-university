@@ -1,59 +1,26 @@
-/* global React, BU_DATA, BU_METRO, BU_PROGRESS, ARXIVIS, THREE */
+/* global React, BU_DATA, BU_METRO, BU_LESSON, BU_PROGRESS, ARXIVIS, THREE */
 // ─────────────────────────────────────────────────────────────────
-// SCREEN · LEARN — ride stop to stop
+// SCREEN · LEARN — ride stop to stop, and learn along the platform
 //
 // A daytime train ride along your tour: a raised track through a quiet
-// town, one platform per stop. Each platform's board carries the stop's
-// idea; the card in the corner has the short version, "Change here for …"
-// at stops that link to other courses, and the full lesson one click away.
+// town, one station per stop. A stop is taught in beats (why it matters →
+// the idea → how it works → watch out → check yourself, from lesson-kit.jsx),
+// and each beat has its own board along the platform: stepping through the
+// lesson rolls the train from board to board, so the lesson is somewhere
+// you move through, not a card over a backdrop. The card carries the beat
+// in full (typeset maths, tap-open mistakes, recall before reveal), can
+// read it aloud, and ends each stop with "How well did that land?", which
+// schedules its review.
 //
 // Takes any tour in the shared format ([{ node, cluster, kind, rationale }]),
-// so routes from the Map, Courses, arXivis, open problems and Propose all
-// ride the same way. App owns `idx`; the scene follows it.
+// so routes from the Map, Courses, Research and Progress all ride the same
+// way. App owns `idx`; the scene follows it.
 // ─────────────────────────────────────────────────────────────────
 
 const { useState, useEffect, useRef, useMemo } = React;
 
 const RIDE_FONT = '"Geist", "Helvetica Neue", Arial, sans-serif';
-const RIDE_FIRST = 40, RIDE_GAP = 75;
-
-// Lessons are written in Markdown with LaTeX; the ride shows them as plain text.
-const TEX = {
-  subseteq: "⊆", subset: "⊂", supseteq: "⊇", in: "∈", notin: "∉", le: "≤", leq: "≤", ge: "≥", geq: "≥",
-  neq: "≠", ne: "≠", approx: "≈", cdot: "·", times: "×", to: "→", rightarrow: "→", leftarrow: "←",
-  infty: "∞", sum: "Σ", prod: "Π", log: "log", ln: "ln", min: "min", max: "max", ldots: "…", dots: "…",
-  cdots: "⋯", alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ", epsilon: "ε", varepsilon: "ε",
-  lambda: "λ", mu: "μ", pi: "π", sigma: "σ", theta: "θ", phi: "φ", omega: "ω", Omega: "Ω", Theta: "Θ",
-  forall: "∀", exists: "∃", cup: "∪", cap: "∩", emptyset: "∅", mid: "|", lvert: "|", rvert: "|",
-  langle: "⟨", rangle: "⟩", pm: "±", sqrt: "√", partial: "∂", nabla: "∇", mathcal: "", mathbb: "", mathrm: "",
-  text: "", operatorname: "", left: "", right: "", quad: " ", qquad: " ",
-};
-function rideTex(s) {
-  return s
-    .replace(/\\([a-zA-Z]+)/g, (m, w) => (w in TEX ? TEX[w] : w))
-    .replace(/\\[{}|,;! ]/g, m => (m[1] === "{" || m[1] === "}" || m[1] === "|" ? m[1] : " "))
-    .replace(/\^\{([^}]*)\}/g, "^$1").replace(/_\{([^}]*)\}/g, "_$1")
-    .replace(/[{}]/g, "").replace(/-/g, "−");
-}
-function ridePlain(md) {
-  if (!md) return "";
-  return String(md)
-    .replace(/\$\$([\s\S]*?)\$\$/g, (_, t) => rideTex(t))
-    .replace(/\$([^$\n]+)\$/g, (_, t) => rideTex(t))
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/\*\*|__|`/g, "")
-    .replace(/^#+\s*/gm, "")
-    .replace(/\n\s*(?:[-*]|\d+[.)])\s+/g, "; ")
-    .replace(/:\s*;\s*/g, ": ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-function rideClip(text, max) {
-  if (text.length <= max) return text;
-  const cut = text.slice(0, max);
-  const dot = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "));
-  return (dot > max * 0.5 ? cut.slice(0, dot + 1) : cut.slice(0, cut.lastIndexOf(" ")) + "…").replace(/;$/, ".");
-}
+const RIDE_FIRST = 40, RIDE_GAP = 150, BEAT_STEP = 11;
 
 // "How well did that land?" — SM-2 qualities (see agents/spaced_repetition.py):
 // below 3 comes back in 10 minutes; 4 and 5 come back in a day, then later.
@@ -73,13 +40,13 @@ function papersFor(id) {
     ((window.ARXIVIS && window.ARXIVIS.papers) || []).forEach(p => (p.concepts || []).forEach(c => {
       const key = String(c.id || "").replace(/^wiki:/, "").toLowerCase();
       if (!key || !p.url) return;
-      (_papersByConcept[key] = _papersByConcept[key] || []).push({ title: p.title, url: p.url, year: p.year, w: c.weight || 0 });
+      (_papersByConcept[key] = _papersByConcept[key] || []).push({ id: p.id, title: p.title, url: p.url, year: p.year, w: c.weight || 0 });
     }));
     // a paper can name the same concept twice (e.g. two spellings): keep its strongest mention
     Object.keys(_papersByConcept).forEach(key => {
       const seen = new Set();
       _papersByConcept[key] = _papersByConcept[key].sort((a, b) => b.w - a.w)
-        .filter(p => { const t = p.url + "|" + p.title; if (seen.has(p.url) || seen.has(p.title)) return false; seen.add(p.url); seen.add(p.title); return !!t; });
+        .filter(p => { if (seen.has(p.url) || seen.has(p.title)) return false; seen.add(p.url); seen.add(p.title); return true; });
     });
   }
   return _papersByConcept[String(id).toLowerCase()] || [];
@@ -90,21 +57,11 @@ function rideStops(tour) {
   return tour.map(s => {
     const node = net.byId[s.node];
     const line = net.lineOfCluster[s.cluster] || (node && net.lineOfCluster[node.cluster]);
-    const lesson = BU_DATA.lessonFor(s.node) || {};
-    const name = (node && node.name) || s.node.replace(/_/g, " ");
-    const summary = rideClip(ridePlain(lesson.summary), 260);
-    // key ideas that only repeat the summary's own bullet points are skipped
-    const flat = t => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
-    const ideas = (lesson.key_ideas || [])
-      .map(k => {
-        const h = ridePlain(k.h).replace(/[.:]$/, ""), b = ridePlain(k.b);
-        return rideClip([h, b].filter(Boolean).join(": "), 120);
-      })
-      .filter(t => t && flat(summary).indexOf(flat(t)) < 0)
-      .slice(0, 3);
+    const kit = BU_LESSON.lessonKit(s.node);
     const papers = papersFor(s.node);
     return {
-      id: s.node, name, summary, ideas,
+      id: s.node, name: kit.name, kit,
+      teaser: BU_LESSON.clipText(BU_LESSON.mdPlain(kit.card && kit.card.why ? kit.card.why.md : kit.idea), 200),
       papers: papers.slice(0, 2), paperCount: papers.length,
       color: line ? line.color : "#d4351c",
       lineName: line ? line.name : "",
@@ -145,16 +102,17 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
     scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
   }
 
-  // the track: long enough for every stop plus a little run-out
-  const need = STOP[NS - 1] + 90, nCtrl = Math.max(6, Math.ceil(need / 28) + 1);
+  // the track: long enough for every station plus a little run-out
+  const need = STOP[NS - 1] + BEAT_STEP * 6 + 60, nCtrl = Math.max(6, Math.ceil(need / 28) + 1);
   const ctrl = [];
-  for (let ci = 0; ci <= nCtrl; ci++) ctrl.push(V(22 * Math.sin(ci * 0.5), 9 + 1.6 * Math.sin(ci * 0.9), -ci * 30));
+  for (let ci = 0; ci <= nCtrl; ci++) ctrl.push(V(18 * Math.sin(ci * 0.35), 9 + 1.4 * Math.sin(ci * 0.6), -ci * 30));
   const path = new THREE.CatmullRomCurve3(ctrl, false, "centripetal");
   const L = path.getLength();
   const N = Math.ceil(L / 0.75), P = [], T = [], S = [];
   for (let i = 0; i <= N; i++) { const u = i / N; P.push(path.getPointAt(u)); const tg = path.getTangentAt(u); T.push(tg); S.push(UP.clone().cross(tg).normalize()); }
   const idxAt = d => clamp(Math.round(d / L * N), 0, N);
-  const ribbon = (i0, i1, w, yo, off, mat) => {
+  // A strip that follows the track from point i0 to i1: `off` to the side, `yo` up.
+  const ribbon = (i0, i1, w, yo, off, mat, shadow) => {
     const pos = [], idx = [];
     for (let i = i0; i <= i1; i++) {
       const p = P[i], s = S[i];
@@ -162,24 +120,24 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
       if (i > i0) { const a = (i - 1 - i0) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; scene.add(m); return m;
+    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.castShadow = !!shadow; scene.add(m); return m;
   };
-  const wall = (off, y0, y1, mat) => {
+  const wall = (i0, i1, off, y0, y1, mat) => {
     const pos = [], idx = [];
-    for (let i = 0; i <= N; i++) {
+    for (let i = i0; i <= i1; i++) {
       const p = P[i], s = S[i];
       pos.push(p.x + s.x * off, p.y + y0, p.z + s.z * off, p.x + s.x * off, p.y + y1, p.z + s.z * off);
-      if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      if (i > i0) { const a = (i - 1 - i0) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     const m = new THREE.Mesh(g, mat); m.castShadow = true; scene.add(m);
   };
   const concrete = new THREE.MeshStandardMaterial({ color: "#cfd2cc", roughness: 0.95, side: THREE.DoubleSide });
   ribbon(0, N, 5.6, -0.3, 0, concrete);
-  wall(2.8, -1.4, 0.5, concrete); wall(-2.8, -1.4, 0.5, concrete);
+  wall(0, N, 2.8, -1.4, 0.5, concrete); wall(0, N, -2.8, -1.4, 0.5, concrete);
   // edge strips in each stretch's line colour, so a change of line shows on the track
   STOPS.forEach((st, k) => {
-    const from = k === 0 ? 0 : idxAt(STOP[k - 1] + 14), to = k === NS - 1 ? N : idxAt(STOP[k] + 14);
+    const from = k === 0 ? 0 : idxAt(STOP[k - 1] + 60), to = k === NS - 1 ? N : idxAt(STOP[k] + 60);
     if (to <= from) return;
     const mat = new THREE.MeshStandardMaterial({ color: st.color, roughness: 0.6, side: THREE.DoubleSide });
     ribbon(from, to, 0.14, 0.52, 2.8, mat); ribbon(from, to, 0.14, 0.52, -2.8, mat);
@@ -208,11 +166,11 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   const canvasTex = (w, h, draw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; draw(c.getContext("2d"), w, h); return new THREE.CanvasTexture(c); };
   const winTex = canvasTex(64, 128, (g, w, h) => { g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h); g.fillStyle = "#b9cad6"; for (let y = 6; y < h; y += 10) for (let x = 6; x < w; x += 10) g.fillRect(x, y, 5, 6); });
   const cityMat = new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.85 });
-  const cr = rng(12), blocks = [], maxBlocks = Math.round(420 * (-zEnd + 50) / 530);
+  const cr = rng(12), blocks = [], maxBlocks = Math.min(1400, Math.round(420 * (-zEnd + 50) / 530));
   for (let a = 0; a < maxBlocks * 6 && blocks.length < maxBlocks; a++) {
     const bx = (cr() - 0.5) * 240, bz = 50 - cr() * (-zEnd + 50);
     let ok = true;
-    for (let pi = 0; pi <= N; pi += 8) { const dx = P[pi].x - bx, dz = P[pi].z - bz; if (dx * dx + dz * dz < 170) { ok = false; break; } }
+    for (let pi = 0; pi <= N; pi += 8) { const dx = P[pi].x - bx, dz = P[pi].z - bz; if (dx * dx + dz * dz < 260) { ok = false; break; } }
     if (ok) blocks.push([bx, bz, 6 + cr() * 8, 5 + Math.pow(cr(), 2) * 30, 6 + cr() * 8]);
   }
   const boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0, 0.5, 0);
@@ -221,10 +179,10 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   city.count = blocks.length;
   city.castShadow = true; city.receiveShadow = true; scene.add(city);
 
-  // stations: platforms, canopies, a name sign and a lesson board
+  // signs: canvas-textured planes, repainted once the web font is in
   const signs = [];
   const wrapLines = (g, text, maxW) => {
-    const words = text.split(" "), lines = [];
+    const words = String(text).split(" "), lines = [];
     let line = "";
     words.forEach(w => { const t = line ? line + " " + w : w; if (g.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; });
     if (line) lines.push(line);
@@ -233,55 +191,91 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   const paintSign = o => {
     const c = document.createElement("canvas"); c.width = Math.round(o.w * 96); c.height = Math.round(o.h * 96);
     o.draw(c.getContext("2d"), c.width, c.height);
-    const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+    const tex = new THREE.CanvasTexture(c); tex.anisotropy = 8;
     const old = o.mesh.material.map; o.mesh.material.map = tex; o.mesh.material.needsUpdate = true; if (old) old.dispose();
   };
   const signMesh = (w, h, draw) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     const o = { mesh: m, draw, w, h }; paintSign(o); signs.push(o); return m;
   };
-  const platMat = new THREE.MeshStandardMaterial({ color: "#cfd3cc", roughness: 0.85 }), edgeMat = new THREE.MeshStandardMaterial({ color: "#f2c200" });
-  const roofMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.6 }), postMat = new THREE.MeshStandardMaterial({ color: "#14171a" });
+  const fit = (g, text, weight, size, maxW, min = 20) => {
+    let fs = size;
+    g.font = weight + " " + fs + "px " + RIDE_FONT;
+    while (g.measureText(text).width > maxW && fs > min) { fs -= 2; g.font = weight + " " + fs + "px " + RIDE_FONT; }
+  };
+
+  // stations: a platform long enough for the stop's boards, one board per beat.
+  // The boards stand on the right of the train (the card sits on the left of
+  // the screen), angled back towards where the train stops for them.
+  const platMat = new THREE.MeshStandardMaterial({ color: "#cfd3cc", roughness: 0.85, side: THREE.DoubleSide }), edgeMat = new THREE.MeshStandardMaterial({ color: "#f2c200", side: THREE.DoubleSide });
+  const roofMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.6, side: THREE.DoubleSide }), postMat = new THREE.MeshStandardMaterial({ color: "#14171a" });
+  const BOARD_W = 8, BOARD_H = 4;
   STOPS.forEach((st, k) => {
-    const ii = idxAt(STOP[k]), grp = new THREE.Group();
-    grp.position.copy(P[ii]); grp.lookAt(P[ii].clone().add(T[ii])); scene.add(grp);
+    const nb = st.kit.beats.length, back = 14, len = back + BEAT_STEP * nb + 8;
+    const i0 = idxAt(STOP[k] - back), i1 = idxAt(STOP[k] - back + len);
+    // platforms and canopies follow the track, so they stay true on curves
     [-1, 1].forEach(sd => {
-      const plat = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.1, 28), platMat); plat.position.set(sd * 4.8, -0.2, 0); plat.receiveShadow = true; grp.add(plat);
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 28), edgeMat); edge.position.set(sd * 3.05, 0.37, 0); grp.add(edge);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.3, 22), roofMat); roof.position.set(sd * 5, 4.6, 0); roof.castShadow = true; grp.add(roof);
-      [-9, 0, 9].forEach(z => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4.2, 8), postMat); post.position.set(sd * 6.4, 2.3, z); grp.add(post); });
+      ribbon(i0, i1, 3.8, 0.35, sd * 4.8, platMat, true);
+      wall(i0, i1, sd * 2.9, -0.75, 0.35, platMat);
+      ribbon(i0, i1, 0.3, 0.37, sd * 3.05, edgeMat);
+      ribbon(idxAt(STOP[k] - back + 3), idxAt(STOP[k] - back + len - 3), 4.6, 4.75, sd * 5, roofMat, true);
+      // canopy posts: spaced along the left; on the right they stand behind the boards
+      for (let d = sd > 0 ? 6 : back + 8; d < len - 4; d += 11) {
+        const ii = idxAt(STOP[k] - back + d);
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4.4, 8), postMat);
+        post.position.copy(P[ii]).addScaledVector(S[ii], sd * 7.05); post.position.y += 2.55; scene.add(post);
+      }
     });
+    // the station name, overhead as you pull in
+    const ia = idxAt(STOP[k] + 13), nameGrp = new THREE.Group();
+    nameGrp.position.copy(P[ia]); nameGrp.lookAt(P[ia].clone().add(T[ia])); scene.add(nameGrp);
     const name = signMesh(12, 2.0, (g, w, h) => {
       g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
       g.fillStyle = st.color; g.fillRect(0, 0, w, h * 0.16); g.fillRect(0, h * 0.84, w, h * 0.16);
-      g.fillStyle = "#14171a";
-      let fs = Math.round(h * 0.42);
-      g.font = "700 " + fs + "px " + RIDE_FONT; g.textAlign = "center"; g.textBaseline = "middle";
-      while (g.measureText(st.name).width > w - 40 && fs > 20) { fs -= 4; g.font = "700 " + fs + "px " + RIDE_FONT; }
+      g.fillStyle = "#14171a"; g.textAlign = "center"; g.textBaseline = "middle";
+      fit(g, st.name, 700, Math.round(h * 0.42), w - 40);
       g.fillText(st.name, w / 2, h / 2 + 2);
     });
-    name.position.set(0, 6.0, 13); name.rotation.y = Math.PI; grp.add(name);
-    if (st.summary || st.ideas.length) {
-      const board = signMesh(9, 4.2, (g, w, h) => {
-        g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h); g.strokeStyle = "#14171a"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
-        const pad = 40;
-        let y = 84;
-        g.fillStyle = st.color; g.font = "700 34px " + RIDE_FONT;
-        g.fillText(wrapLines(g, st.name, w - pad * 2)[0], pad, y); y += 58;
-        g.fillStyle = "#14171a"; g.font = "500 32px " + RIDE_FONT;
-        wrapLines(g, st.summary, w - pad * 2).slice(0, 3).forEach(ln => { g.fillText(ln, pad, y); y += 42; });
-        y += 8; g.font = "500 28px " + RIDE_FONT; g.fillStyle = "#2b3036";
-        st.ideas.slice(0, Math.max(0, Math.floor((h - 20 - y) / 38))).forEach(t => { g.fillText("•  " + wrapLines(g, t, w - pad * 2 - 30)[0], pad, y); y += 38; });
+    name.position.set(0, 6.3, 0); name.rotation.y = Math.PI; nameGrp.add(name);
+    // one board per beat
+    st.kit.beats.forEach((beat, b) => {
+      const ib = idxAt(STOP[k] + BEAT_STEP * b + 8), grp = new THREE.Group();
+      grp.position.copy(P[ib]); grp.lookAt(P[ib].clone().add(T[ib])); scene.add(grp);
+      const board = signMesh(BOARD_W, BOARD_H, (g, w, h) => {
+        g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
+        const band = Math.round(h * 0.24), pad = 34;
+        g.fillStyle = st.color; g.fillRect(0, 0, w, band);
+        g.fillStyle = "#ffffff"; g.beginPath(); g.arc(pad + 26, band / 2, 26, 0, Math.PI * 2); g.fill();
+        g.fillStyle = st.color; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "700 34px " + RIDE_FONT;
+        g.fillText(String(b + 1), pad + 26, band / 2 + 2);
+        g.fillStyle = "#ffffff"; g.textAlign = "left"; g.font = "700 40px " + RIDE_FONT;
+        g.fillText(beat.title, pad + 68, band / 2 + 2);
+        const titleW = g.measureText(beat.title).width;
+        g.textAlign = "right"; fit(g, st.name, 500, 26, w - pad * 2 - 90 - titleW, 16);
+        g.fillText(st.name, w - pad, band / 2 + 2);
+        g.textAlign = "left"; g.textBaseline = "alphabetic"; g.fillStyle = "#14171a";
+        let y = band + 62;
+        const lines = [];
+        beat.board.forEach((t, li) => { g.font = (li === 0 ? "600 " : "500 ") + "33px " + RIDE_FONT; wrapLines(g, t, w - pad * 2).forEach(ln => lines.push([ln, li === 0])); });
+        lines.slice(0, 6).forEach(([ln, strong], n) => {
+          g.font = (strong ? "600 " : "500 ") + "33px " + RIDE_FONT;
+          g.fillText(n === 5 && lines.length > 6 ? ln.replace(/.{0,3}$/, "…") : ln, pad, y); y += 43;
+        });
+        g.strokeStyle = "#14171a"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
       });
-      board.position.set(-6.25, 2.4, -1); board.rotation.y = Math.PI / 2; grp.add(board);
-    }
+      board.position.set(-6.6, 2.55, 0); board.rotation.y = Math.PI / 2 + 0.5; grp.add(board);
+      [-1, 1].forEach(e => { // legs
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6), postMat);
+        leg.position.set(-6.6 + e * 0.48 * (BOARD_W / 2 - 0.4), 0.55, e * -0.88 * (BOARD_W / 2 - 0.4)); grp.add(leg);
+      });
+    });
   });
 
   // other lines cross overhead (and under) at stops that link to them
   const trainGeo = new THREE.CapsuleGeometry(0.75, 3.6, 4, 12); trainGeo.rotateX(Math.PI / 2);
   const crossTrains = [];
   const crossing = (k, color, dy, ang) => {
-    const ii = idxAt(STOP[k] + 6), c = P[ii], dir = S[ii].clone().applyAxisAngle(UP, ang).normalize(), y = c.y + dy, len = 200;
+    const ii = idxAt(STOP[k] - 22), c = P[ii], dir = S[ii].clone().applyAxisAngle(UP, ang).normalize(), y = c.y + dy, len = 200;
     const q = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), dir);
     const deck = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, len), concrete); deck.position.set(c.x, y - 0.5, c.z); deck.quaternion.copy(q); deck.castShadow = true; scene.add(deck);
     const lipMat = new THREE.MeshStandardMaterial({ color });
@@ -296,16 +290,17 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   };
   STOPS.forEach((st, k) => st.changes.slice(0, 2).forEach((ch, j) => crossing(k, ch.color, j === 0 ? 9 : -5.5, j === 0 ? 0.25 : -0.35)));
 
-  // ride
-  let at = clamp(startAt, 0, NS - 1), dist = STOP[at], run = null, speed = 0;
-  let yaw = 0, pitch = 0, yawGoal = 0, pitchGoal = 0, drag = null, lastUser = -1e9;
+  // ride: `run` is the trip between stops, `roll` the short move to a beat's board
+  let at = clamp(startAt, 0, NS - 1), dist = STOP[at], run = null, roll = null, speed = 0;
+  let yaw = 0, pitch = 0, yawGoal = 0, pitchGoal = 0, yawHome = 0, drag = null, lastUser = -1e9;
+  const boardYaw = () => (W < 700 ? -0.68 : -0.44); // glance right, at the board
   const onDown = e => { if (e.button != null && e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, id: e.pointerId }; try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* old browsers */ } canvas.style.cursor = "grabbing"; lastUser = now; };
-  const onMove = e => { if (!drag || e.pointerId !== drag.id) return; yawGoal = clamp(yawGoal - (e.clientX - drag.x) * 0.004, -1.2, 1.2); pitchGoal = clamp(pitchGoal + (e.clientY - drag.y) * 0.003, -0.4, 0.35); drag.x = e.clientX; drag.y = e.clientY; lastUser = now; };
+  const onMove = e => { if (!drag || e.pointerId !== drag.id) return; yawGoal = clamp(yawGoal - (e.clientX - drag.x) * 0.004, -1.3, 1.3); pitchGoal = clamp(pitchGoal + (e.clientY - drag.y) * 0.003, -0.4, 0.35); drag.x = e.clientX; drag.y = e.clientY; lastUser = now; };
   const onUp = e => { if (drag && e.pointerId === drag.id) { drag = null; canvas.style.cursor = "grab"; lastUser = now; } };
   const onKey = e => {
     const k = e.key;
-    if (k === "ArrowLeft") yawGoal = clamp(yawGoal + 0.2, -1.2, 1.2);
-    else if (k === "ArrowRight") yawGoal = clamp(yawGoal - 0.2, -1.2, 1.2);
+    if (k === "ArrowLeft") yawGoal = clamp(yawGoal + 0.2, -1.3, 1.3);
+    else if (k === "ArrowRight") yawGoal = clamp(yawGoal - 0.2, -1.3, 1.3);
     else if (k === " " || k === "Enter") hooks.onRequestNext();
     else return;
     e.preventDefault(); lastUser = now;
@@ -315,16 +310,28 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
 
   const goTo = i => {
     i = clamp(i, 0, NS - 1);
+    roll = null;
     if (run) { dist = run.s0 + run.D; at = run.to; run = null; speed = 0; }
     if (i === at) { hooks.onArrive(at); return; }
     if (i === at + 1 && !reduce) {
-      const D = STOP[i] - STOP[at], secs = Math.max(4.5, D / 14);
-      run = { s0: STOP[at], D, T: secs, t: 0, to: i };
+      const D = STOP[i] - dist, secs = Math.max(4.5, D / 14);
+      run = { s0: dist, D, T: secs, t: 0, to: i };
+      yawHome = 0; lastUser = -1e9;
       hooks.onDepart(i, secs);
       return;
     }
-    at = i; dist = STOP[i]; hooks.onArrive(at);
+    at = i; dist = STOP[i]; yawHome = boardYaw(); lastUser = -1e9; hooks.onArrive(at);
   };
+  // Roll along the platform to beat b's board.
+  const setBeat = b => {
+    if (run) return;
+    const target = STOP[at] + BEAT_STEP * clamp(b, 0, STOPS[at].kit.beats.length - 1);
+    yawHome = boardYaw(); lastUser = -1e9;
+    if (Math.abs(target - dist) < 0.05) return;
+    if (reduce) { dist = target; roll = null; return; }
+    roll = { s0: dist, D: target - dist, T: clamp(Math.abs(target - dist) / 8, 0.9, 2.2), t: 0 };
+  };
+  yawHome = boardYaw(); yawGoal = yaw = yawHome;
   hooks.onArrive(at);
 
   const cp = V(0, 0, 0), ahead = V(0, 0, 0), look = V(0, 0, 0);
@@ -334,14 +341,19 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
       const x = clamp(run.t / run.T, 0, 1);
       dist = run.s0 + run.D * (x * x * x * (x * (x * 6 - 15) + 10));
       speed = run.D * 30 * x * x * (x - 1) * (x - 1) / run.T;
-      if (x >= 1) { at = run.to; run = null; speed = 0; hooks.onArrive(at); }
+      if (x >= 1) { at = run.to; run = null; speed = 0; yawHome = boardYaw(); lastUser = -1e9; hooks.onArrive(at); }
+    } else if (roll) {
+      roll.t += dt;
+      const x = clamp(roll.t / roll.T, 0, 1);
+      dist = roll.s0 + roll.D * (x * x * (3 - 2 * x));
+      if (x >= 1) roll = null;
     }
     crossTrains.forEach(c => {
       if (!reduce) c.u = (c.u + dt * 0.05) % 1;
       const s = (c.u < 0.5 ? c.u * 2 : 2 - c.u * 2) - 0.5;
       c.mesh.position.copy(c.c).addScaledVector(c.dir, s * c.len * 0.85); c.mesh.position.y = c.y;
     });
-    if (!drag && now - lastUser > 1.6) { yawGoal *= Math.exp(-dt * 1.4); pitchGoal *= Math.exp(-dt * 1.4); }
+    if (!drag && now - lastUser > 1.6) { const e = 1 - Math.exp(-dt * 1.8); yawGoal += (yawHome - yawGoal) * e; pitchGoal += (0 - pitchGoal) * e; }
     const kk = 1 - Math.exp(-dt * 6); yaw += (yawGoal - yaw) * kk; pitch += (pitchGoal - pitch) * kk;
     path.getPointAt(clamp(dist / L, 0, 1), cp); path.getPointAt(clamp((dist + 16) / L, 0, 1), ahead);
     camera.position.set(cp.x, cp.y + 2.2, cp.z);
@@ -351,10 +363,11 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
   };
 
-  const resize = () => { W = Math.max(1, wrap.clientWidth); H = Math.max(1, wrap.clientHeight); renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); };
+  const resize = () => { W = Math.max(1, wrap.clientWidth); H = Math.max(1, wrap.clientHeight); renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); if (!run) yawHome = boardYaw(); };
   const ro = window.ResizeObserver ? new ResizeObserver(resize) : null;
   if (ro) ro.observe(wrap); else window.addEventListener("resize", resize);
   resize();
+  yawGoal = yaw = yawHome;
   const kick = () => { if (!raf && !dead && visible && !document.hidden) { last = performance.now(); raf = requestAnimationFrame(frame); } };
   const frame = ts => { raf = 0; if (dead) return; const dt = Math.min(0.12, Math.max(0, (ts - last) / 1000)); last = ts; now += dt; update(dt); renderer.render(scene, camera); kick(); };
   const io = window.IntersectionObserver ? new IntersectionObserver(es => { visible = es[0].isIntersecting; kick(); }) : null;
@@ -364,7 +377,7 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   kick();
 
   return {
-    goTo,
+    goTo, setBeat,
     dispose() {
       dead = true; if (raf) cancelAnimationFrame(raf);
       if (ro) ro.disconnect(); else window.removeEventListener("resize", resize);
@@ -378,19 +391,51 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
   };
 }
 
+// ─── read aloud (the browser's own speech; nothing is sent anywhere) ───
+function useReadAloud() {
+  const can = typeof window !== "undefined" && "speechSynthesis" in window && typeof window.SpeechSynthesisUtterance === "function";
+  const [on, setOn] = useState(() => can && BU_METRO.readPref("bu_listen", false) === true);
+  const say = text => {
+    if (!can) return;
+    try {
+      window.speechSynthesis.cancel();
+      if (!text) return;
+      const u = new window.SpeechSynthesisUtterance(String(text).slice(0, 1400));
+      u.rate = 1.02;
+      window.speechSynthesis.speak(u);
+    } catch (_) { /* speech not available after all */ }
+  };
+  const toggle = () => setOn(v => { const n = !v; BU_METRO.writePref("bu_listen", n); if (!n) say(""); return n; });
+  useEffect(() => () => say(""), []);
+  return { can, on, toggle, say };
+}
+
 // ─── the screen ──────────────────────────────────────────────────
 function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onPapers, onMap }) {
   const stops = useMemo(() => rideStops(tour), [tour]);
   const n = stops.length;
   const tourKey = tour.map(s => s.node).join("|");
-  const wrapRef = useRef(null), canvasRef = useRef(null), sceneRef = useRef(null);
+  const wrapRef = useRef(null), canvasRef = useRef(null), sceneRef = useRef(null), bodyRef = useRef(null);
   const [at, setAt] = useState(idx);
   const [moving, setMoving] = useState(false);
   const [runMs, setRunMs] = useState(0);
   const [noScene, setNoScene] = useState(false);
+  const [beat, setBeat] = useState(0);
   const [rated, setRated] = useState({}); // node → { q, card } rated on this visit
+  const voice = useReadAloud();
+
+  const show = moving ? idx : at, cs = stops[show] || stops[0];
+  const beats = cs.kit.beats, nb = beats.length;
+  const b = Math.min(beat, nb - 1), cur = beats[b];
+  const lastBeat = b >= nb - 1, lastStop = at >= n - 1 && !moving;
+
   const nextRef = useRef(null);
-  nextRef.current = () => { if (idx < n - 1) onAdvance(1); };
+  const stepNext = () => {
+    if (moving) return;
+    if (!lastBeat) setBeat(b + 1);
+    else if (idx < n - 1) onAdvance(1);
+  };
+  nextRef.current = stepNext;
 
   // build the scene once per tour; it starts at the current stop
   useEffect(() => {
@@ -421,23 +466,34 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onP
     };
   }, [tourKey]);
 
-  // App owns idx; the train follows it
+  // App owns idx; the train follows it. A new stop starts at its first beat.
   useEffect(() => {
+    setBeat(0);
     if (sceneRef.current) sceneRef.current.goTo(idx);
     else { setAt(idx); setMoving(false); }
   }, [idx, tourKey]);
+  // stepping through the lesson rolls the train to that beat's board
+  useEffect(() => {
+    if (!moving && sceneRef.current) sceneRef.current.setBeat(b);
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [b, at, moving]);
+  // read aloud: the station on arrival, then each beat
+  useEffect(() => {
+    if (!voice.on || moving) return;
+    voice.say((b === 0 ? "This is " + cs.name + ". " : "") + cur.title + ". " + cur.speech);
+  }, [voice.on, b, at, moving]);
+  useEffect(() => { if (moving && voice.on) voice.say("Next stop: " + cs.name + "."); }, [moving]);
 
-  const show = moving ? idx : at, cs = stops[show] || stops[0];
-  const last = at >= n - 1 && !moving;
   const lefts = stops.map((_, i) => (n === 1 ? 50 : 6 + (88 * i) / (n - 1)));
-  const minsLeft = (n - 1 - at) * BU_METRO.MIN_PER_STOP;
   const lineNames = Array.from(new Set(stops.map(s => s.lineName).filter(Boolean)));
+  const minsLeft = (n - 1 - at) * BU_METRO.MIN_PER_STOP;
+  const back = () => { if (b > 0) setBeat(b - 1); else if (at > 0) onAdvance(-1); };
 
   return (
     <section className="metro metro-ride" aria-label="Train ride">
       <div ref={wrapRef} className="metro-ride-stage" style={noScene ? { display: "none" } : null}>
         <canvas ref={canvasRef} tabIndex={0} role="img"
-                aria-label={`View from the front of the train on a raised track through a quiet town. ${moving ? "Riding to " + cs.name + "." : "Stopped at " + cs.name + "; the platform board shows this stop's idea."} Drag to look around; Space goes to the next stop.`} />
+                aria-label={`View from the train. ${moving ? "Riding to " + cs.name + "." : `Stopped at ${cs.name}, beside the board for part ${b + 1} of ${nb}: ${cur.title}.`} Drag to look around; Space moves on.`} />
       </div>
       {noScene && <div className="metro-ride-flat" aria-hidden="true" />}
 
@@ -468,69 +524,99 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onP
           {cs.lineName && <> · <i style={{ background: cs.color }} />{cs.lineName} line</>}
         </span>
         <h1>{cs.name}</h1>
-        {cs.summary && <p>{cs.summary}</p>}
-        {cs.ideas.length > 0 && (
-          <ul>
-            {cs.ideas.map((t, i) => <li key={i}><span aria-hidden="true" style={{ borderColor: cs.color }} />{t}</li>)}
-          </ul>
-        )}
-        {!moving && cs.changes.length > 0 && (
-          <div className="metro-ride-change">
-            <span>Change here for the {BU_METRO.listAnd(cs.changes.map(c => c.name))} {cs.changes.length > 1 ? "lines" : "line"}</span>
-            {onBranch && <button type="button" className="metro-btn ghost" onClick={() => onBranch(cs.id)}>Change lines</button>}
-          </div>
-        )}
-        {!moving && window.BU_PROGRESS && (
-          <div className="metro-ride-rate">
-            <span id="metro-rate-label">How well did that land?</span>
-            <div role="group" aria-labelledby="metro-rate-label">
-              {RIDE_RATINGS.map(r => {
-                const on = rated[cs.id] && rated[cs.id].q === r.q;
-                return (
-                  <button key={r.q} type="button" aria-pressed={!!on} className={"metro-rate" + (on ? " on" : "")}
-                          onClick={() => setRated(m => ({ ...m, [cs.id]: { q: r.q, card: BU_PROGRESS.rate(cs.id, r.q) } }))}>
-                    {r.label}
+
+        {moving ? (
+          <p className="metro-ride-teaser">{cs.teaser}</p>
+        ) : (
+          <>
+            <ol className="metro-beats" aria-label="Parts of this stop">
+              {beats.map((bt, i) => (
+                <li key={bt.key}>
+                  <button type="button" aria-current={i === b ? "step" : undefined} className={i === b ? "on" : i < b ? "done" : ""}
+                          onClick={() => setBeat(i)} style={i <= b ? { borderColor: cs.color, background: i === b ? cs.color : "#ffffff" } : null}>
+                    <span>{i + 1}</span>{i === b && bt.title}
+                    {i !== b && <span className="metro-sr">{bt.title}</span>}
                   </button>
-                );
-              })}
+                </li>
+              ))}
+            </ol>
+
+            <div className="metro-ride-body" ref={bodyRef} tabIndex={0} role="group" aria-label={cur.title}>
+              <BU_LESSON.BeatBody kit={cs.kit} beat={cur.key} compact />
+
+              {lastBeat && window.BU_PROGRESS && (
+                <div className="metro-ride-rate">
+                  <span id="metro-rate-label">How well did that land?</span>
+                  <div role="group" aria-labelledby="metro-rate-label">
+                    {RIDE_RATINGS.map(r => {
+                      const on = rated[cs.id] && rated[cs.id].q === r.q;
+                      return (
+                        <button key={r.q} type="button" aria-pressed={!!on} className={"metro-rate" + (on ? " on" : "")}
+                                onClick={() => setRated(m => ({ ...m, [cs.id]: { q: r.q, card: BU_PROGRESS.rate(cs.id, r.q) } }))}>
+                          {r.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {rated[cs.id] && <small role="status">Saved. It comes back for review {rideWhen(rated[cs.id].card)}.</small>}
+                </div>
+              )}
+              {lastBeat && cs.changes.length > 0 && (
+                <div className="metro-ride-change">
+                  <span>Change here for the {BU_METRO.listAnd(cs.changes.map(c => c.name))} {cs.changes.length > 1 ? "lines" : "line"}</span>
+                  {onBranch && <button type="button" className="metro-btn ghost" onClick={() => onBranch(cs.id)}>Change lines</button>}
+                </div>
+              )}
+              {lastBeat && cs.papers.length > 0 && (
+                <div className="metro-ride-papers">
+                  <span>In recent papers</span>
+                  {cs.papers.map(p => (
+                    <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer">{p.title}{p.year ? ` (${p.year})` : ""}</a>
+                  ))}
+                  {onPapers && (
+                    <button type="button" className="metro-linkbtn" onClick={() => onPapers(cs.id)}>
+                      {cs.paperCount > cs.papers.length ? `${cs.paperCount} papers mention this · open Research` : "Open Research"}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-            {rated[cs.id] && <small role="status">Saved. It comes back for review {rideWhen(rated[cs.id].card)}.</small>}
-          </div>
+          </>
         )}
-        {!moving && cs.papers.length > 0 && (
-          <div className="metro-ride-papers">
-            <span>In recent papers</span>
-            {cs.papers.map(p => (
-              <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer">
-                {p.title}{p.year ? ` (${p.year})` : ""}
-              </a>
-            ))}
-            {onPapers && (
-              <button type="button" className="metro-linkbtn" onClick={onPapers}>
-                {cs.paperCount > cs.papers.length ? `${cs.paperCount} papers mention this · open Papers` : "Open Papers"}
+
+        <div className="metro-ride-foot">
+          <span>
+            {moving ? "Arriving…" : `Part ${b + 1} of ${nb}`}
+            {!moving && !lastStop && <> · {minsLeft} min left</>}
+          </span>
+          <div>
+            {voice.can && !moving && (
+              <button type="button" className={"metro-btn ghost" + (voice.on ? " on" : "")} aria-pressed={voice.on} onClick={voice.toggle}>
+                {voice.on ? "Listening" : "Listen"}
               </button>
             )}
-          </div>
-        )}
-        <div className="metro-ride-foot">
-          <span>{moving ? "Arriving…" : last ? "That was your last stop." : `${minsLeft} min left on this ride`}</span>
-          <div>
-            {at > 0 && !moving && <button type="button" className="metro-btn ghost" onClick={() => onAdvance(-1)} aria-label="Back to the previous stop">‹ Back</button>}
             {onFullLesson && !moving && <button type="button" className="metro-btn ghost" onClick={onFullLesson}>Full lesson</button>}
-            {!last && (
+            {!moving && (b > 0 || at > 0) && <button type="button" className="metro-btn ghost" onClick={back} aria-label={b > 0 ? "Back to the previous part" : "Back to the previous stop"}>‹ Back</button>}
+            {!lastBeat && !moving && <button type="button" className="metro-btn primary" onClick={() => setBeat(b + 1)}>{beats[b + 1].title} ›</button>}
+            {(lastBeat || moving) && !lastStop && (
               <button type="button" className="metro-btn primary" disabled={moving} onClick={() => onAdvance(1)}>
                 {moving ? "Riding…" : "Next stop ›"}
               </button>
             )}
-            {last && onSummit && <button type="button" className="metro-btn primary" onClick={onSummit}>Finish the ride ★</button>}
-            {last && onMap && <button type="button" className="metro-btn dark" onClick={onMap}>Back to the map</button>}
+            {lastBeat && lastStop && onSummit && <button type="button" className="metro-btn primary" onClick={onSummit}>Finish the ride ★</button>}
           </div>
         </div>
+        {!moving && !lastBeat && !lastStop && (
+          <button type="button" className="metro-linkbtn metro-skip" onClick={() => onAdvance(1)}>Skip to the next stop</button>
+        )}
+        {!moving && lastBeat && lastStop && onMap && (
+          <button type="button" className="metro-linkbtn metro-skip" onClick={onMap}>Back to the map</button>
+        )}
       </article>
     </section>
   );
 }
 
 window.MetroRide = MetroRide;
-// Shared with the lesson page (metro-lesson.jsx).
-window.BU_METRO_TEXT = { tex: rideTex, plain: ridePlain, clip: rideClip, papersFor, ratings: RIDE_RATINGS, when: rideWhen };
+// Shared with the lesson page and Research.
+window.BU_METRO_TEXT = { papersFor, ratings: RIDE_RATINGS, when: rideWhen };

@@ -1,68 +1,17 @@
-/* global React, BU_DATA, BU_METRO, BU_METRO_TEXT, BU_PROGRESS, ConceptInteractive */
+/* global React, BU_DATA, BU_METRO, BU_METRO_TEXT, BU_LESSON, BU_PROGRESS, ConceptInteractive */
 // ─────────────────────────────────────────────────────────────────
 // SCREEN · LESSON PAGE — the full lesson for a stop (Learn → Full lesson)
 //
-// Everything the ride card shortens, in full: the idea (Markdown and maths
-// rendered, not raw), its key ideas, a hands-on simulation where one exists,
-// a quick check that feeds spaced repetition, sources and papers. The side
+// Everything the ride teaches in beats, on one page and at full length:
+// why it matters, the idea and its key equations, how it works, an example,
+// where it's used, the common mistakes, a hands-on simulation where one
+// exists, a quick check that feeds spaced repetition, and further reading.
+// Content and rendering come from lesson-kit.jsx (BU_LESSON). The side
 // panel is the ride itself: every stop, where you are, and the way back.
 // Replaces the old Walk screen (screens/walk.jsx), which stays as a fallback.
 // ─────────────────────────────────────────────────────────────────
 
 const { useState, useEffect, useMemo } = React;
-
-// ─── a small, safe Markdown + maths renderer (React nodes, no innerHTML) ─
-function lessonName(id) {
-  const net = window.BU_METRO && BU_METRO.network();
-  const n = net && net.byId[id];
-  return n ? n.name : String(id).replace(/_/g, " ");
-}
-function mdInline(text, key = "i") {
-  const s = String(text || "").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, id, label) => label || lessonName(id));
-  return s.split(/(\*\*[^*]+\*\*|\$[^$\n]+\$|`[^`]+`)/g).filter(p => p !== "").map((p, i) => {
-    const k = key + i;
-    if (p.length > 4 && p.startsWith("**") && p.endsWith("**")) return <strong key={k}>{p.slice(2, -2)}</strong>;
-    if (p.length > 2 && p.startsWith("$") && p.endsWith("$")) return <span key={k} className="metro-math">{BU_METRO_TEXT.tex(p.slice(1, -1))}</span>;
-    if (p.length > 2 && p.startsWith("`") && p.endsWith("`")) return <code key={k}>{p.slice(1, -1)}</code>;
-    return p;
-  });
-}
-function mdBlocks(md) {
-  const src = String(md || "").replace(/\r/g, "")
-    .replace(/\$\$([\s\S]*?)\$\$/g, (_, t) => "\n$$" + t.replace(/\n/g, " ") + "$$\n");
-  const out = [];
-  let para = [], list = null;
-  const flushPara = () => { if (para.length) { out.push(<p key={"p" + out.length}>{mdInline(para.join(" "), "p" + out.length)}</p>); para = []; } };
-  const flushList = () => {
-    if (!list) return;
-    const Tag = list.ordered ? "ol" : "ul", k = "l" + out.length;
-    out.push(<Tag key={k}>{list.items.map((it, i) => <li key={i}>{mdInline(it, k + i)}</li>)}</Tag>);
-    list = null;
-  };
-  src.split("\n").forEach(raw => {
-    const line = raw.trim();
-    if (!line) { flushPara(); flushList(); return; }
-    if (line.startsWith("$$") && line.endsWith("$$") && line.length > 4) {
-      flushPara(); flushList();
-      out.push(<div key={"m" + out.length} className="metro-math metro-math-block">{BU_METRO_TEXT.tex(line.slice(2, -2))}</div>);
-      return;
-    }
-    const h = line.match(/^#{1,6}\s+(.*)$/);
-    if (h) { flushPara(); flushList(); out.push(<h3 key={"h" + out.length}>{mdInline(h[1], "h" + out.length)}</h3>); return; }
-    const m = line.match(/^([-*]|\d+[.)])\s+(.*)$/);
-    if (m) {
-      flushPara();
-      const ordered = /\d/.test(m[1]);
-      if (!list || list.ordered !== ordered) { flushList(); list = { ordered, items: [] }; }
-      list.items.push(m[2]);
-      return;
-    }
-    flushList();
-    para.push(line);
-  });
-  flushPara(); flushList();
-  return out;
-}
 
 // The generated quizzes read "True/false: this statement matches the wiki
 // definition of 'Raw_Id'" with a cut-off answer; ask it plainly instead.
@@ -80,6 +29,7 @@ function cleanQuiz(q, node, name) {
 }
 
 function QuickCheck({ quiz, node }) {
+  const { mdInline } = BU_LESSON;
   const [picked, setPicked] = useState(null);
   const [checked, setChecked] = useState(false);
   const [card, setCard] = useState(null);
@@ -118,25 +68,21 @@ function QuickCheck({ quiz, node }) {
 }
 
 function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummit, onShow3D, onPapers }) {
+  const { BeatBody } = BU_LESSON;
   const net = BU_METRO.network();
   const stop = tour[idx];
-  const node = stop.node, name = lessonName(node);
-  const lesson = useMemo(() => BU_DATA.lessonFor(node) || {}, [node]);
+  const node = stop.node;
+  const kit = useMemo(() => BU_LESSON.lessonKit(node), [node]);
+  const { name, lesson, card } = kit;
+  const nameOf = id => (net.byId[id] ? net.byId[id].name : String(id).replace(/_/g, " "));
   const line = net.lineOfCluster[stop.cluster] || (net.byId[node] && net.lineOfCluster[net.byId[node].cluster]);
   const color = line ? line.color : "#d4351c";
   const changes = net.changesAt(node).filter(c => c !== line);
   const quiz = cleanQuiz(lesson.quiz && lesson.quiz[0], node, name);
-  // key ideas that only repeat the summary's own points are left out
-  const flat = t => BU_METRO_TEXT.plain(t).toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const summaryFlat = flat(lesson.summary || "");
-  const ideas = (lesson.key_ideas || []).filter(k => k && (k.h || k.b))
-    .filter(k => summaryFlat.indexOf(flat([k.h, k.b].filter(Boolean).join(" "))) < 0);
-  // the ride's own "Board the … / Stop n of …" lines repeat the side panel
-  const why = stop.rationale && !/^(Board the |Stop \d+ of )/.test(stop.rationale) ? stop.rationale : "";
   const Sim = window.lessonExerciseFor ? window.lessonExerciseFor(node) : "generic";
   const papers = BU_METRO_TEXT.papersFor(node);
-  const worked = lesson.worked_example && !/^\(Auto-generated/.test(lesson.worked_example) ? lesson.worked_example : "";
   const sources = (lesson.evidence || []).filter(e => /^wiki\//.test(e));
+  const has = key => kit.beats.some(b => b.key === key);
   const last = idx >= tour.length - 1;
   const P = window.BU_PROGRESS;
 
@@ -151,33 +97,30 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
             {line && <> · <i style={{ background: color }} />{line.name} line</>}
           </span>
           <h1 id="lesson-title" className="metro-h1">{name}</h1>
-          {why && <p className="metro-note" style={{ margin: "6px 0 0" }}>{why}</p>}
 
-          <section className="metro-lesson-sec" aria-label="The idea">
-            <div className="metro-prose">{mdBlocks(lesson.summary || "")}</div>
-          </section>
-
-          {ideas.length > 0 && (
-            <section className="metro-lesson-sec" aria-labelledby="lesson-ideas">
-              <h2 id="lesson-ideas" className="metro-h2">Key ideas</h2>
-              <ol className="metro-ideas">
-                {ideas.map((k, i) => (
-                  <li key={i}>
-                    <span className="metro-ideas-num" style={{ borderColor: color }} aria-hidden="true">{i + 1}</span>
-                    <div>
-                      {k.h && <b>{mdInline(String(k.h).replace(/[.:]$/, ""), "h" + i)}</b>}
-                      {k.b && <span>{mdInline(k.b, "b" + i)}</span>}
-                    </div>
-                  </li>
-                ))}
-              </ol>
+          {has("why") && (
+            <section className="metro-lesson-sec" aria-labelledby="lesson-why">
+              <h2 id="lesson-why" className="metro-h2">Why it matters</h2>
+              <BeatBody kit={kit} beat="why" />
             </section>
           )}
 
-          {worked && (
-            <section className="metro-lesson-sec" aria-labelledby="lesson-worked">
-              <h2 id="lesson-worked" className="metro-h2">Worked example</h2>
-              <div className="metro-prose">{mdBlocks(worked)}</div>
+          <section className="metro-lesson-sec" aria-labelledby="lesson-idea">
+            <h2 id="lesson-idea" className="metro-h2">The idea</h2>
+            <BeatBody kit={kit} beat="idea" />
+          </section>
+
+          {has("how") && (
+            <section className="metro-lesson-sec" aria-labelledby="lesson-how">
+              <h2 id="lesson-how" className="metro-h2">How it works</h2>
+              <BeatBody kit={kit} beat="how" />
+            </section>
+          )}
+
+          {has("ideas") && (
+            <section className="metro-lesson-sec" aria-labelledby="lesson-ideas">
+              <h2 id="lesson-ideas" className="metro-h2">Key ideas</h2>
+              <BeatBody kit={kit} beat="ideas" />
             </section>
           )}
 
@@ -188,23 +131,30 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
             </section>
           )}
 
-          {quiz && (
-            <section className="metro-lesson-sec" aria-labelledby="lesson-check">
-              <h2 id="lesson-check" className="metro-h2">Quick check</h2>
-              <QuickCheck quiz={quiz} node={node} />
+          {has("traps") && (
+            <section className="metro-lesson-sec" aria-labelledby="lesson-traps">
+              <h2 id="lesson-traps" className="metro-h2">Common mistakes</h2>
+              <BeatBody kit={kit} beat="traps" />
             </section>
           )}
 
-          {Sim === "generic" && typeof ConceptInteractive !== "undefined" && ideas.length > 0 && (
+          <section className="metro-lesson-sec" aria-labelledby="lesson-check">
+            <h2 id="lesson-check" className="metro-h2">Check yourself</h2>
+            <BeatBody kit={kit} beat="check" />
+            {quiz && <QuickCheck quiz={quiz} node={node} />}
+          </section>
+
+          {Sim === "generic" && typeof ConceptInteractive !== "undefined" && kit.ideas.length > 0 && (
             <details className="metro-lesson-sec metro-practise">
               <summary>Practise with flashcards</summary>
               <div className="metro-sim"><ConceptInteractive lesson={lesson} /></div>
             </details>
           )}
 
-          {(papers.length > 0 || sources.length > 0) && (
+          {(papers.length > 0 || sources.length > 0 || (card && card.related)) && (
             <section className="metro-lesson-sec" aria-labelledby="lesson-more">
               <h2 id="lesson-more" className="metro-h2">Read more</h2>
+              {card && card.related && <p className="metro-note" style={{ marginBottom: 8 }}>Related ideas: {card.related.join(" · ")}</p>}
               {papers.length > 0 && (
                 <ul className="metro-reading">
                   {papers.slice(0, 4).map(p => (
@@ -212,8 +162,10 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
                   ))}
                 </ul>
               )}
-              {papers.length > 4 && onPapers && (
-                <button type="button" className="metro-linkbtn" onClick={onPapers}>{papers.length} papers mention this · open Papers</button>
+              {papers.length > 0 && onPapers && (
+                <button type="button" className="metro-linkbtn" onClick={() => onPapers(node)}>
+                  {papers.length > 4 ? `${papers.length} papers mention this · open Research` : "Open these in Research"}
+                </button>
               )}
               {sources.length > 0 && <p className="metro-note">Source: {sources.join(", ")}</p>}
             </section>
@@ -221,7 +173,7 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
 
           <div className="metro-lesson-nav">
             <div>
-              {idx > 0 && <button type="button" className="metro-btn ghost" onClick={() => onAdvance(-1)}>‹ {lessonName(tour[idx - 1].node)}</button>}
+              {idx > 0 && <button type="button" className="metro-btn ghost" onClick={() => onAdvance(-1)}>‹ {nameOf(tour[idx - 1].node)}</button>}
             </div>
             <div>
               <button type="button" className="metro-btn ghost" onClick={onRide}>Back to the ride</button>
@@ -246,7 +198,7 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
                   <div className="metro-stop">
                     <button type="button" className="metro-stopbtn" aria-current={here ? "step" : undefined}
                             onClick={() => onJumpTo(i)} style={{ fontWeight: here ? 700 : 600, color: here ? "#14171a" : "#51575e" }}>
-                      {lessonName(s.node)}
+                      {nameOf(s.node)}
                     </button>
                   </div>
                   <span className="metro-when">{here ? "here" : done ? "✓ done" : ""}</span>
