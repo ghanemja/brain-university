@@ -662,3 +662,176 @@ body::before {
 [data-view="agent"] ::selection {
   background: color-mix(in oklch, var(--c-cert) 30%, transparent);
 }
+
+/* ==========================================================================
+   Metro: the Map and Learn screens (screens/metro-map.jsx, metro-ride.jsx).
+   Always light, whatever the palette: they are drawn like a transit map.
+   ========================================================================== */
+.metro {
+  --m-ink: #14171a; --m-ink-2: #2b3036; --m-muted: #51575e; --m-dim: #6b7178;
+  --m-rule: #e3e5e1; --m-bg: #f4f5f2; --m-red: #d4351c; --m-link: #1d70b8;
+  color: var(--m-ink); background: var(--m-bg);
+  font-family: var(--f-sans); font-size: 15px; line-height: 1.45;
+}
+.metro button:focus-visible, .metro a:focus-visible, .metro input:focus-visible, .metro canvas:focus-visible {
+  outline: 3px solid var(--m-link); outline-offset: 2px;
+}
+.metro-page {
+  min-height: calc(100vh - 56px);
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px; padding: 20px;
+}
+.metro-card { background: #ffffff; border: 2px solid var(--m-ink); border-radius: 8px; }
+
+/* plan-your-trip panel */
+.metro-panel { flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 18px; padding: 20px; }
+.metro-field { display: flex; flex-direction: column; gap: 6px; }
+.metro-label-strong { font-size: 15px; font-weight: 700; }
+.metro-note { font-size: 13.5px; color: var(--m-muted); }
+.metro-input {
+  height: 46px; padding: 0 12px; border: 2px solid var(--m-ink); border-radius: 4px;
+  background: #ffffff; color: var(--m-ink); font: inherit; font-size: 16px;
+}
+.metro-input::placeholder { color: var(--m-dim); }
+.metro-tickets { display: flex; gap: 8px; }
+.metro-ticket {
+  flex: 1 1 0; height: 48px; border: 2px solid var(--m-ink); border-radius: 6px;
+  background: #ffffff; color: var(--m-ink); font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.metro-ticket.on { background: var(--m-ink); color: #ffffff; }
+.metro-chip {
+  align-self: flex-start; display: flex; align-items: center; height: 30px; padding: 0 12px;
+  border-radius: 4px; color: #ffffff; font-size: 15px; font-weight: 700;
+}
+.metro-stoplist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.metro-stoplist li { display: flex; gap: 12px; }
+.metro-rail { position: relative; flex: none; width: 18px; display: flex; justify-content: center; }
+.metro-rail span { position: absolute; top: 0; bottom: 0; width: 6px; }
+.metro-rail i { position: relative; margin-top: 8px; width: 16px; height: 16px; border-radius: 50%; background: #ffffff; border: 3px solid; }
+.metro-stop { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 6px 0; font-size: 15px; }
+.metro-change { font-size: 13px; font-weight: 600; color: var(--m-link); }
+.metro-when { padding-top: 7px; font-size: 13px; font-weight: 600; color: var(--m-muted); white-space: nowrap; }
+.metro-cta {
+  display: flex; align-items: center; justify-content: center; gap: 12px; height: 54px;
+  border: 0; border-radius: 6px; background: var(--m-red); color: #ffffff;
+  font: inherit; font-size: 18px; font-weight: 700; cursor: pointer;
+}
+.metro-cta:hover { background: #b92d17; }
+
+/* the map */
+.metro-mapcard { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; }
+.metro-maphead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 20px; }
+.metro-maphead h1 { margin: 0; display: flex; align-items: center; gap: 12px; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
+.metro-maphead > span { font-size: 15px; color: var(--m-muted); }
+/* contain: the map scrolls sideways inside its card instead of widening the page */
+.metro-mapbox { overflow-x: auto; contain: inline-size; min-width: 0; border-radius: 6px; background: #efede6; }
+.metro-mapbox svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--f-sans); }
+.metro-maplabel { font-size: 15px; paint-order: stroke; stroke: #f7f6f1; stroke-width: 5px; stroke-linejoin: round; }
+.metro-hit { cursor: pointer; }
+.metro-key { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; font-size: 14px; color: var(--m-ink-2); }
+.metro-key > span { display: flex; align-items: center; gap: 8px; }
+.metro-linegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 6px; }
+.metro-linebtn {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px;
+  border-radius: 6px; border: 2px solid var(--m-rule); background: #ffffff; color: var(--m-ink);
+  font: inherit; font-size: 14.5px; font-weight: 500; text-align: left; cursor: pointer;
+}
+.metro-linebtn > span { flex: none; width: 26px; height: 8px; border-radius: 4px; }
+.metro-linebtn.on { border-color: var(--m-ink); font-weight: 700; }
+.metro-linebtn:hover { border-color: var(--m-muted); }
+
+/* the ride */
+.metro-ride { position: relative; min-height: calc(100vh - 56px); overflow: hidden; background: #dfeaf1; }
+.metro-ride-stage { position: absolute; inset: 0; }
+.metro-ride-stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.metro-ride-flat { position: absolute; inset: 0; background: linear-gradient(#a9cbe3, #eef3f2 55%, #e9ece6 55%); }
+.metro-ride-strip {
+  position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+  width: min(820px, calc(100% - 32px)); padding: 10px 20px 4px;
+  border-radius: 8px; background: #ffffff; border: 2px solid var(--m-ink);
+}
+.metro-ride-track { position: relative; height: 62px; }
+.metro-ride-seg { position: absolute; top: 14px; height: 6px; }
+.metro-ride-station { position: absolute; top: 0; width: 0; height: 62px; }
+.metro-ride-station > span {
+  position: absolute; left: 0; top: 17px; border-radius: 50%; transform: translate(-50%, -50%); border: 3px solid;
+}
+.metro-ride-station > em {
+  position: absolute; left: 0; top: 32px; width: 150px; transform: translateX(-50%);
+  text-align: center; font-style: normal; font-size: 13px; line-height: 1.2; color: var(--m-ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.metro-ride-train {
+  position: absolute; top: 17px; width: 30px; height: 16px; margin-left: -15px; margin-top: -8px;
+  border-radius: 6px; background: #ffffff; border: 2px solid var(--m-ink);
+}
+.metro-ride-card {
+  position: absolute; left: 24px; bottom: 24px; width: min(480px, calc(100% - 48px));
+  max-height: calc(100% - 150px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px; padding: 20px 22px;
+  border-radius: 8px; background: #ffffff; border: 2px solid var(--m-ink);
+}
+.metro-ride-tag {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--m-muted);
+}
+.metro-ride-tag i { display: inline-block; width: 18px; height: 6px; border-radius: 3px; }
+.metro-ride-card h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; text-wrap: balance; }
+.metro-ride-card p { margin: 0; font-size: 16.5px; line-height: 1.5; color: var(--m-ink-2); text-wrap: pretty; }
+.metro-ride-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.metro-ride-card li { display: flex; align-items: baseline; gap: 10px; font-size: 15px; color: var(--m-ink-2); }
+.metro-ride-card li > span { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 3px solid; }
+.metro-ride-change {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 14px; font-weight: 600; color: var(--m-link);
+}
+.metro-ride-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding-top: 12px; border-top: 2px solid var(--m-rule); font-size: 14px; color: var(--m-muted);
+}
+.metro-ride-foot > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.metro-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px;
+  border: 2px solid transparent; border-radius: 6px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.metro-btn.primary { background: var(--m-red); color: #ffffff; }
+.metro-btn.primary:hover { background: #b92d17; }
+.metro-btn.primary:disabled { background: #8b9097; cursor: default; }
+.metro-btn.dark { background: var(--m-ink); color: #ffffff; }
+.metro-btn.ghost { background: #ffffff; color: var(--m-ink); border-color: var(--m-ink); height: 40px; padding: 0 14px; font-size: 14.5px; }
+.metro-btn.ghost:hover { background: var(--m-bg); }
+@media (max-width: 640px) {
+  .metro-page { padding: 12px; gap: 12px; }
+  .metro-panel { max-width: none; }
+  .metro-mapcard { padding: 14px; }
+  .metro-ride-strip { top: 10px; padding: 8px 12px 2px; }
+  .metro-ride-station > em { width: 90px; font-size: 12px; }
+  .metro-ride-card { left: 12px; right: 12px; bottom: 12px; width: auto; padding: 16px; }
+  .metro-ride-card h1 { font-size: 24px; }
+}
+
+/* top-bar dropdowns (Research, More) */
+.nav-menu { position: relative; }
+.nav-menu-list {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 30;
+  min-width: 220px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--c-bg-elev); border: 1px solid var(--c-line-strong); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-elev);
+}
+.topbar .nav .nav-menu-list button { text-align: left; border-radius: var(--r-md); padding: 8px 12px; }
+.topbar .nav .nav-menu-list button.active { box-shadow: none; }
+.nav-menu-list small { display: block; font-size: 11.5px; color: var(--c-ink-dim); margin-top: 1px; }
+
+/* Narrow screens: the five top-bar tabs fit once the extras step aside. */
+@media (max-width: 760px) {
+  .topbar { grid-template-columns: auto 1fr auto; gap: 8px; padding: 0 10px; }
+  .topbar .brand > span:last-child { display: none; }
+  .topbar .right > span { display: none; }
+  .topbar .nav button { padding: 6px 9px; }
+}
+@media (max-width: 560px) {
+  .topbar { grid-template-columns: auto 1fr; }
+  .topbar .right { display: none; }
+  .topbar .nav { justify-self: end; }
+  .topbar .nav button { padding: 6px 7px; font-size: 12px; }
+  .nav-menu-list { left: auto; right: 0; transform: none; }
+}

@@ -151,6 +151,8 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script type="text/babel" src="screens/open-problems.jsx?v=1"></script>
   <script type="text/babel" src="screens/podcast.jsx?v=2"></script>
   <script type="text/babel" src="screens/courses.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-map.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-ride.jsx?v=1"></script>
 
   <!-- ATP agent-view screens -->
   <script type="text/babel" src="screens/atp-university.jsx?v=1"></script>
@@ -172,7 +174,11 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "cinematicCamera": true
 }/*EDITMODE-END*/;
 
+// Every human-view screen id (routing + deep links). The top bar shows them
+// grouped in NAV_HUMAN below, so nothing is lost when the tabs are folded.
 const SCREENS_HUMAN = [
+  { id: "map",       label: "Map",        hint: "M" },
+  { id: "ride",      label: "Learn",      hint: "L" },
   { id: "trailhead", label: "Trailhead",  hint: "01" },
   { id: "walk",      label: "The walk",   hint: "02" },
   { id: "branch",    label: "Bridge",     hint: "03" },
@@ -195,6 +201,26 @@ const SCREENS_AGENT = [
   { id: "vault",       label: "Vault-LD",       hint: "06" },
 ];
 
+// Human top bar: four places plus a "More" menu for everything else.
+const NAV_HUMAN = [
+  { id: "map",  label: "Map" },
+  { id: "ride", label: "Learn", also: ["walk"] },   // "walk" = the full lesson page
+  { id: "research", label: "Research", items: [
+    { id: "arxivis",  label: "Papers",        note: "arXivis: today's papers, explained" },
+    { id: "openprob", label: "Open problems", note: "Unsolved questions to work on" },
+    { id: "propose",  label: "Propose",       note: "Ask the graph for a research direction" },
+  ] },
+  { id: "dashboard", label: "Progress" },
+  { id: "more", label: "More", items: [
+    { id: "explorer",  label: "3D brain",     note: "The whole knowledge graph in 3D" },
+    { id: "courses",   label: "Courses",      note: "Robot autonomy and other full courses" },
+    { id: "podcast",   label: "Podcast",      note: "Listen to a topic" },
+    { id: "trailhead", label: "Trailhead",    note: "The original start screen" },
+    { id: "branch",    label: "Bridge",       note: "How changing lines works" },
+    { id: "summit",    label: "Summit",       note: "Your last ride's summary" },
+  ] },
+];
+
 const AGENT_SCREEN_IDS = new Set(SCREENS_AGENT.map(s => s.id));
 const HUMAN_SCREEN_IDS = new Set(SCREENS_HUMAN.map(s => s.id));
 
@@ -206,7 +232,7 @@ function App() {
       return saved === "human" || saved === "agent" ? saved : "agent";
     } catch (_) { return "agent"; }
   });
-  const [screen, setScreen]     = useState(view === "agent" ? "university" : "trailhead");
+  const [screen, setScreen]     = useState(view === "agent" ? "university" : "map");
   const [atpAgentId, setAtpAgentId] = useState(null);
   const [tour, setTour]         = useState(null);
   const [stopIdx, setStopIdx]   = useState(0);
@@ -247,14 +273,22 @@ function App() {
     document.documentElement.dataset.displayFont = t.displayFont;
   }, [t.palette, t.displayFont]);
 
-  const startTour = useCallback((nodeId, _cluster, interest) => {
+  const startTour = useCallback((nodeId, _cluster, interest, dest = "ride") => {
     if (interest && interest.trim()) {
       setLearner(prev => ({ ...prev, interest: interest.trim() }));
     }
     const planned = BU_DATA.planTour(nodeId);
     setTour(planned);
     setStopIdx(0);
-    setScreen("walk");
+    setScreen(typeof MetroRide !== "undefined" ? dest : "walk");
+  }, []);
+
+  // The Map plans a ride itself: the stops its ticket covers on one line.
+  const startRide = useCallback((planned) => {
+    if (!planned || !planned.length) return;
+    setTour(planned);
+    setStopIdx(0);
+    setScreen("ride");
   }, []);
 
   const advance = useCallback((delta) => {
@@ -263,9 +297,12 @@ function App() {
 
   const handleBranch = useCallback(() => setBranch(true), []);
   const handleFork = useCallback((toNode, cluster) => {
-    // Splice a forked tour: keep visited stops, append a planned tour starting at toNode
+    // Splice a forked tour: keep visited stops, append a planned tour starting
+    // at toNode that doesn't double back through a stop already ridden.
     const visited = tour.slice(0, stopIdx + 1);
-    const forked = BU_DATA.planTour(toNode).slice(0, 4);
+    const seen = new Set(visited.map(s => s.node));
+    const forked = (BU_DATA.planTour(toNode) || []).filter(s => !seen.has(s.node)).slice(0, 4);
+    if (!forked.length) { setBranch(false); return; }
     setTour([...visited, ...forked]);
     setStopIdx(visited.length);
     setBranch(false);
@@ -286,7 +323,7 @@ function App() {
     if (v === view) return;
     setView(v);
     setExplorer(false); setArxivisOpen(false); setOpenprobOpen(false);
-    setScreen(v === "agent" ? "university" : "trailhead");
+    setScreen(v === "agent" ? "university" : "map");
   }, [view]);
 
   // Fast nav across top
@@ -306,7 +343,7 @@ function App() {
       setOpenprobOpen(true);
     } else {
       setArxivisOpen(false); setOpenprobOpen(false);
-      if (id === "walk" && !tour) startTour("Reynolds_number");
+      if (id === "walk" && !tour) startTour("Reynolds_number", null, null, "walk");
       else setScreen(id);
     }
   };
@@ -403,8 +440,21 @@ function App() {
             {view === "agent" ? "Agent University · est. 2026" : "· learning prototype"}
           </span></span>
         </div>
-        <nav className="nav">
-          {(view === "agent" ? SCREENS_AGENT : SCREENS_HUMAN).map(s => (
+        <nav className="nav" aria-label="Main">
+          {view === "human" && NAV_HUMAN.map(g => {
+            const current = explorerOpen ? "explorer" : arxivisOpen ? "arxivis" : openprobOpen ? "openprob" : screen;
+            const on = current === g.id || (g.also || []).includes(current) || (g.items || []).some(i => i.id === current);
+            return g.items
+              ? <NavMenu key={g.id} group={g} active={on} current={current} onPick={goto} />
+              : (
+                <button key={g.id} data-nav={g.id} data-nav-also={(g.also || []).join(" ")}
+                  className={on ? "active" : ""} aria-current={on ? "page" : undefined}
+                  onClick={() => goto(g.id)}>
+                  {g.label}
+                </button>
+              );
+          })}
+          {view === "agent" && SCREENS_AGENT.map(s => (
             <button key={s.id}
               data-nav={s.id}
               className={screen === s.id || (s.id === "explorer" && explorerOpen) || (s.id === "arxivis" && arxivisOpen) || (s.id === "openprob" && openprobOpen) ? "active" : ""}
@@ -456,32 +506,48 @@ function App() {
 
       {/* MAIN */}
       <main style={{ position: "relative" }}>
+        {screen === "map" && (
+          typeof MetroMap !== "undefined"
+            ? <MetroMap onStartRide={startRide} />
+            : <Trailhead learner={learner} onPickStart={startTour} />
+        )}
+        {screen === "ride" && tour && typeof MetroRide !== "undefined" && (
+          <MetroRide tour={tour} idx={stopIdx}
+                     onAdvance={advance}
+                     onBranch={handleBranch}
+                     onSummit={handleSummit}
+                     onFullLesson={() => setScreen("walk")}
+                     onMap={() => setScreen("map")} />
+        )}
+        {screen === "ride" && !tour && (
+          <EmptyRide onPick={() => setScreen("map")} />
+        )}
         {screen === "trailhead" && (
           <Trailhead learner={learner} onPickStart={startTour} />
         )}
         {screen === "walk" && tour && (
           <Walk tour={tour} idx={stopIdx} layout={t.lessonLayout}
                 onAdvance={advance}
-                onJumpTo={(i) => typeof i === "number" ? setStopIdx(i) : setScreen("trailhead")}
+                onJumpTo={(i) => typeof i === "number" ? setStopIdx(i) : setScreen("map")}
                 onBranch={handleBranch}
                 onSummit={handleSummit}
                 onShow3D={() => { setExplorer(true); setExplorerNode(tour[stopIdx].node); }} />
         )}
         {screen === "walk" && !tour && (
-          <EmptyTour onPick={() => setScreen("trailhead")} />
+          <EmptyTour onPick={() => setScreen("map")} />
         )}
         {screen === "branch" && (
           <BranchStandalone onOpen={() => { setScreen("walk"); if (!tour) startTour("Reynolds_number"); setTimeout(() => setBranch(true), 300); }} />
         )}
         {screen === "summit" && (
           <Summit tour={tour || BU_DATA.planTour("Reynolds_number")}
-                  onAnotherTrail={() => setScreen("trailhead")}
+                  onAnotherTrail={() => setScreen("map")}
                   onDashboard={() => setScreen("dashboard")} />
         )}
         {screen === "dashboard" && (
           <Dashboard learner={learner}
                      onResume={(startNode) => { startTour(startNode || "Reynolds_number"); }}
-                     onNewTrail={() => setScreen("trailhead")} />
+                     onNewTrail={() => setScreen("map")} />
         )}
         {screen === "propose" && (
           <Propose onJumpToNode={(id) => startTour(id)} />
@@ -617,8 +683,8 @@ function App() {
         </TweakSection>
         <TweakSection label="Demo helpers">
           <TweakButton label="Jump to summit" onClick={() => setScreen("summit")} />
-          <TweakButton label="Reset to trailhead" secondary
-            onClick={() => { setTour(null); setStopIdx(0); setScreen("trailhead"); }} />
+          <TweakButton label="Reset to the map" secondary
+            onClick={() => { setTour(null); setStopIdx(0); setScreen("map"); }} />
         </TweakSection>
       </TweaksPanel>
     </div>
@@ -626,6 +692,63 @@ function App() {
 }
 
 // Helper screens for direct nav
+
+// A top-bar tab that opens a short menu (Research, More). Closes on a pick,
+// an outside click or Escape. data-nav-also lets the tutorial spotlight the
+// tab for any screen inside it.
+function NavMenu({ group, active, current, onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      const b = ref.current && ref.current.querySelector("button");
+      if (b) b.focus();
+    };
+    document.addEventListener("pointerdown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div className="nav-menu" ref={ref}>
+      <button data-nav={group.id} data-nav-also={group.items.map(i => i.id).join(" ")}
+        className={active ? "active" : ""} aria-expanded={open} aria-controls={"nav-menu-" + group.id}
+        onClick={() => setOpen(o => !o)}>
+        {group.label} <span aria-hidden="true" style={{ opacity: 0.55, fontSize: 10, marginLeft: 2 }}>▾</span>
+      </button>
+      {open && (
+        <div className="nav-menu-list" id={"nav-menu-" + group.id}>
+          {group.items.map(i => (
+            <button key={i.id} data-nav={i.id}
+              className={current === i.id ? "active" : ""}
+              aria-current={current === i.id ? "page" : undefined}
+              onClick={() => { setOpen(false); onPick(i.id); }}>
+              {i.label}
+              <small>{i.note}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyRide({ onPick }) {
+  return (
+    <div style={{ minHeight: "calc(100vh - 56px)", display: "grid", placeItems: "center", padding: 40 }}>
+      <div className="card" style={{ textAlign: "center", padding: 40, maxWidth: 460 }}>
+        <h2 className="t-h1" style={{ margin: "0 0 8px" }}>No ride yet</h2>
+        <p className="t-cap" style={{ margin: "0 0 18px" }}>
+          Pick a line and how long you have on the map, then press Start ride.
+        </p>
+        <button className="btn primary" onClick={onPick}>Go to the map</button>
+      </div>
+    </div>
+  );
+}
 
 function AgentScreenFallback() {
   // Shown if an atp-*.jsx screen file hasn't loaded (e.g. fetch failure).
@@ -644,12 +767,12 @@ function EmptyTour({ onPick }) {
     <div style={{ minHeight: "calc(100vh - 56px)", display: "grid", placeItems: "center", padding: 40 }}>
       <div className="card" style={{ textAlign: "center", padding: 40, maxWidth: 460 }}>
         <div className="t-tag" style={{ color: "var(--c-ink-muted)", marginBottom: 6 }}>NO ACTIVE TRAIL</div>
-        <h2 className="t-h1" style={{ margin: "0 0 8px" }}>Pick a peak first</h2>
+        <h2 className="t-h1" style={{ margin: "0 0 8px" }}>Pick a line first</h2>
         <p className="t-cap" style={{ margin: "0 0 18px" }}>
-          The walk is generated from your starting concept. Visit the trailhead to choose one
-          (or let the system rank options for you).
+          A lesson page belongs to a ride. Choose a line and how long you have on the map,
+          then press Start ride.
         </p>
-        <button className="btn primary" onClick={onPick}>▲ Go to trailhead</button>
+        <button className="btn primary" onClick={onPick}>Go to the map</button>
       </div>
     </div>
   );

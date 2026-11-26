@@ -23,28 +23,28 @@ const SLIDES = [
     tag: "00 · WELCOME",
     title: "Brain University in 60 seconds.",
     body:
-      "A self-paced learning system built on top of an LLM-curated knowledge graph. Pick a concept, walk a planned tour, watch 30-second video explainers, and let the system re-weight the graph based on what you actually click. Every tab in the top nav is a different way into the same brain.",
+      "A self-paced learning system built on top of an LLM-curated knowledge graph, drawn like a train map. Pick a line, say how long you have, and ride it stop by stop. Map, Learn, Research and Progress are the four ways in; everything else lives under More.",
     cta: "Show me everything",
   },
   {
-    icon: "▲",
-    tag: "01 · TRAILHEAD",
-    title: "Start at the trailhead.",
+    icon: "🚆",
+    tag: "01 · MAP",
+    title: "Every topic is a train line.",
     body:
-      "Type any concept you're curious about — or accept the foundation picks the system ranks by graph centrality. The 3D 'brain' on the right is the knowledge graph itself; foundation concepts are the high-betweenness nodes. ▲ Begin plans a 6-stop tour for you.",
-    highlight: "trailhead",
-    tryIt: "trailhead",
-    cta: "Try the trailhead",
+      "The Map is home. Each coloured line is a topic and each stop is one idea, about 5 minutes. White pills mark stops where two topics link, so you can change lines. Say how long you have (5, 15 or 30 minutes) and the part of each line you can reach turns full colour. Search for what you want to learn, then press Start ride.",
+    highlight: "map",
+    tryIt: "map",
+    cta: "Open the map",
   },
   {
     icon: "↘",
-    tag: "02 · THE WALK",
-    title: "Follow the planned tour.",
+    tag: "02 · LEARN",
+    title: "Ride stop to stop.",
     body:
-      "Six stops: start → deepen ×2 → bridge → deepen ×1-2 → capstone. Each card carries a short rationale paragraph (\"why we go here next\") plus an interactive exercise that lets you play with the idea. Prev / Next moves you through; the 3D minimap shows progress.",
-    highlight: "walk",
-    tryIt: "walk",
-    cta: "Open the walk",
+      "Learn plays your route as a train ride. Each platform board shows that stop's idea, and the card has the short version with Next stop. At an interchange you can change lines to a linked topic. Full lesson opens the whole lesson page, with its quiz and an interactive exercise.",
+    highlight: "ride",
+    tryIt: "ride",
+    cta: "Open Learn",
   },
   {
     icon: "▣",
@@ -167,7 +167,9 @@ function Tutorial({ open, onClose, onJumpTo, onPreview }) {
     const s = SLIDES[idx];
     if (!s || !s.highlight) { setNavRect(null); return; }
     const measure = () => {
-      const el = document.querySelector('[data-nav="' + s.highlight + '"]');
+      // A screen folded into a menu (Research ▾, More ▾) spotlights its tab.
+      const el = document.querySelector('[data-nav="' + s.highlight + '"]')
+        || document.querySelector('[data-nav-also~="' + s.highlight + '"]');
       setNavRect(el ? el.getBoundingClientRect() : null);
     };
     const id = setTimeout(measure, 140);
@@ -194,7 +196,7 @@ function Tutorial({ open, onClose, onJumpTo, onPreview }) {
     try { localStorage.setItem(TUT_FLAG, "1"); } catch {}
     onClose();
     // Land back at the start of the app, not on the last slide's screen.
-    if (onJumpTo) onJumpTo("trailhead");
+    if (onJumpTo) onJumpTo("map");
   };
 
   const next = () => {
