@@ -299,11 +299,10 @@ function AskTab({ onRide }) {
     const saved = BU_DATA.PROPOSE_EXAMPLES[q];
     try {
       if (!base) throw new Error("no server");
-      let token = null;
-      try { token = sessionStorage.getItem("bu_auth_token"); } catch (_) { /* private mode */ }
+      // Open demo: no credentials; the backend serves this as the demo account.
       const r = await fetch(base + "/propose", {
         method: "POST",
-        headers: Object.assign({ "Content-Type": "application/json" }, token ? { Authorization: "Bearer " + token } : {}),
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: window.BU_USER_ID || "anon", text: q }),
       });
       if (!r.ok) throw new Error("status " + r.status);
