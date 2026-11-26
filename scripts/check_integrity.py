@@ -23,14 +23,26 @@ Stdlib-only on purpose (atp/seed.py is pure data) so CI needs no pip step.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
-from atp.seed import build_seed  # noqa: E402
+
+def _load_seed_module():
+    """Load atp/seed.py by path, NOT via `import atp.seed`: that would run
+    atp/__init__.py, which imports the SQLAlchemy-backed store and breaks
+    the stdlib-only contract (the CI integrity job installs nothing)."""
+    spec = importlib.util.spec_from_file_location(
+        "_atp_seed", ROOT / "atp" / "seed.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+build_seed = _load_seed_module().build_seed
 
 ITEMS_DIR = ROOT / "atp" / "items"
 

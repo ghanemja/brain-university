@@ -5,7 +5,7 @@
 #   integrity   — seed referential-integrity gate (stdlib-only, no pip)
 #   boot-matrix — the P0 3-case auth boot matrix (fail-loud / demo / enabled)
 #   smoke       — scripts/ci_smoke.py: uvicorn + design/ + Playwright chromium
-#                 (login → 6 agent tabs → human trailhead → API e2e)
+#                 (open demo → 6 agent tabs → human topic map → API e2e)
 #   pg          — postgres:16 service: migrations 001→007 as a non-superuser
 #                 table-owner role, DAL roundtrip, RLS deny-by-default probe
 #                 via a SECOND non-superuser role

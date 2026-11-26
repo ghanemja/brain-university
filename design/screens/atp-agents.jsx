@@ -121,12 +121,7 @@ async function agentsDownloadReportCardFallback(agentId) {
   const base = (window.BU_API_BASE || "").replace(/\/+$/, "");
   if (!base) throw new Error("no backend configured");
   const url = base + "/atp/agents/" + encodeURIComponent(agentId) + "/report.pdf";
-  const headers = {};
-  try {
-    const tok = sessionStorage.getItem("bu_auth_token");
-    if (tok) headers["Authorization"] = "Bearer " + tok;
-  } catch (_) {}
-  const r = await fetch(url, { headers });
+  const r = await fetch(url);  // no credentials: open demo (BU_OPEN_DEMO=1)
   if (!r.ok) {
     let detail = "";
     try { detail = ((await r.json()) || {}).detail || ""; } catch (_) {}

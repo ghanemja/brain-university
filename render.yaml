@@ -53,3 +53,7 @@ services:
         sync: false          # 48+ char random; rotate to revoke all sessions
       - key: BU_AUTH_TTL_HOURS
         value: "24"
+      # Open demo: the site has no login, so visitors without a token run as
+      # the demo account. Auth stays on for anything that sends a token.
+      - key: BU_OPEN_DEMO
+        value: "1"

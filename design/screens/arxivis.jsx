@@ -875,14 +875,9 @@ function ResearchAssistantPanel({ rigor, composite }) {
 // by config.js at deploy time). Falls back to localhost:8090 for local dev.
 const API_BASE = (typeof window !== "undefined" && window.BU_API_BASE) || "http://localhost:8090";
 
-// All API fetches send the bearer token saved by the login gate.
+// No credentials: the site is an open demo (BU_OPEN_DEMO=1 on the backend).
 function authHeaders() {
-  let h = { "Content-Type": "application/json" };
-  try {
-    const tok = sessionStorage.getItem("bu_auth_token");
-    if (tok) h["Authorization"] = `Bearer ${tok}`;
-  } catch (_) {}
-  return h;
+  return { "Content-Type": "application/json" };
 }
 
 function PaperVideo({ paperId, hero = false, fillHeight = false }) {

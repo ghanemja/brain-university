@@ -8,11 +8,14 @@
 //   window.BU_API_BASE = "http://localhost:8090";
 //   window.BU_USER_ID  = "anon-" + crypto.randomUUID();
 //
-// Auth: every request attaches Authorization: Bearer <token> read from
-// sessionStorage.bu_auth_token (set by the login gate). If a request returns
-// 401 the gate is re-shown. A 403 (authenticated, insufficient role) NEVER
-// clears the session — helpers throw an error tagged {forbidden:true} and
-// write methods surface {ok:false, forbidden:true} to the caller.
+// Auth: none. The site is an open demo with no login, so requests carry no
+// credentials; the backend serves them as the demo account when it runs
+// with BU_OPEN_DEMO=1 (api/auth.py). A 401 therefore means the backend is
+// not in open-demo mode: helpers throw an error tagged {unauthorized:true,
+// status:401}, read methods fall back to the BU_DATA mock and writes report
+// the failure. Nothing here reloads the page. A 403 (insufficient role)
+// throws an error tagged {forbidden:true}; write methods surface
+// {ok:false, forbidden:true} to the caller.
 //
 // All methods are async + return plain JS objects.
 
@@ -22,22 +25,16 @@
   const user = () => window.BU_USER_ID || "anon";
   const live = () => Boolean(base());
 
-  function authHeader() {
-    try {
-      const tok = sessionStorage.getItem("bu_auth_token");
-      return tok ? { "Authorization": `Bearer ${tok}` } : {};
-    } catch (_) { return {}; }
-  }
-
-  function handle401(r) {
-    if (r.status !== 401) return r;
-    try { sessionStorage.removeItem("bu_auth_token"); } catch (_) {}
-    // Re-show the gate by reloading; sessionStorage flag clears the auth too.
-    if (typeof window !== "undefined") {
-      try { sessionStorage.removeItem("bu_auth"); } catch (_) {}
-      window.location.reload();
+  // fetch(), with a 401 thrown tagged {unauthorized:true} (see Auth above).
+  async function apiFetch(url, init) {
+    const r = await fetch(url, init);
+    if (r.status === 401) {
+      const e = new Error("401 — backend is not in open-demo mode (BU_OPEN_DEMO=1)");
+      e.status = 401;
+      e.unauthorized = true;
+      throw e;
     }
-    throw new Error("401 — session expired, re-authenticate");
+    return r;
   }
 
   // 403 = authenticated but lacking role (e.g. viewer submitting HITL).
@@ -57,8 +54,7 @@
     if (params) Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
     });
-    const r = await fetch(url.toString(), { headers: authHeader() });
-    handle401(r);
+    const r = await apiFetch(url.toString());
     handleForbidden(r);
     if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
     return r.json();
@@ -66,12 +62,11 @@
 
   async function jpost(path, body) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await fetch(base() + path, {
+    const r = await apiFetch(base() + path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeader() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
     });
-    handle401(r);
     handleForbidden(r);
     if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
     return r.json();
@@ -79,10 +74,7 @@
 
   async function jpostMultipart(path, formData) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await fetch(base() + path, {
-      method: "POST", headers: authHeader(), body: formData,
-    });
-    handle401(r);
+    const r = await apiFetch(base() + path, { method: "POST", body: formData });
     handleForbidden(r);
     if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
     return r.json();
@@ -290,8 +282,7 @@
     async reportCardUrl(agentId) {
       if (!live()) throw new Error("BU_API_BASE not set");
       const path = "/atp/agents/" + encodeURIComponent(agentId) + "/report.pdf";
-      const r = await fetch(base() + path, { headers: authHeader() });
-      handle401(r);
+      const r = await apiFetch(base() + path);
       handleForbidden(r);
       if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
       const blob = await r.blob();
@@ -509,8 +500,8 @@
 
     // Licensed expert chat. Auth is the LICENSE KEY (X-ATP-License-Key),
     // not the session bearer, and licensing is server-truth: NO offline
-    // fallback, and a 401/403 here is about the key — it must never clear
-    // the session or reload the gate, so this bypasses handle401().
+    // fallback, and a 401/403 here is about the key, so this skips
+    // apiFetch() and tags the error itself.
     async expertChat(agentId, messages, licenseKey) {
       if (!live()) throw new Error("BU_API_BASE not set");
       const r = await fetch(
@@ -518,7 +509,6 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...authHeader(),
             ...(licenseKey ? { "X-ATP-License-Key": licenseKey } : {}),
           },
           body: JSON.stringify({ messages: messages || [] }),

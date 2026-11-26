@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CI smoke — docs/HARDENING.md Phase 5 (login → 6 agent screens render).
+CI smoke — docs/HARDENING.md Phase 5 (open demo → 6 agent screens render).
 
 Boots the real stack the way the demo runs it, then drives a browser
 through the frontend AND exercises the hardened API paths end-to-end:
@@ -16,9 +16,19 @@ through the frontend AND exercises the hardened API paths end-to-end:
        award) → evidence + chain verify → license lifecycle
        (issue → gated /experts chat → revoke → 403)
   4. Playwright chromium:
-       login gate (admin/password) → all 6 agent-view tabs render
-       non-empty main content → zero console errors → Human view toggle
-       renders the topic map.
+       open demo (no login of any kind: the page never calls /login or
+       /auth/login) → all 6 agent-view tabs render non-empty main content
+       → Human view toggle renders the topic map → the page's progress
+       sync gets 200 from /health and /progress → zero console errors.
+  5. Two more uvicorns with auth ENABLED (the deployed posture), each
+     driven by Playwright from a stale token an old page left in the tab:
+       a. BU_OPEN_DEMO=1 (production): tokenless API calls answer 200 →
+          no login requests, no Authorization header sent → page loads
+          once, agent tabs render on live data. Plus an API check that
+          open-demo mode still verifies real tokens (bad token → 401).
+       b. no open demo (the site deployed before the backend setting):
+          auth 401s reach the page with CORS headers → it loads once (no
+          reload loop) → agent tabs render on bundled demo data.
 
 Runnable locally and in CI (identical behavior):
 
@@ -31,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -39,6 +50,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = ROOT / "design"
@@ -55,6 +67,14 @@ AGENT_TABS = ["university", "agents", "certs", "marketplace", "governance", "vau
 #:                             404 IS the zero-build dev mode working as
 #:                             designed (page falls back to in-browser Babel)
 RESOURCE_404_ALLOWLIST = ("favicon.ico", ".compiled/manifest.json")
+
+#: Login endpoints. The site is an open demo with no login, so the page must
+#: never call these (the backend serves it tokenless: BU_OPEN_DEMO=1).
+LOGIN_PATHS = ("/login", "/auth/login")
+
+#: Requests the Human view's progress sync (design/progress.js) makes on
+#: load; each must be seen from the page with 200 before the smoke ends.
+PROGRESS_SYNC_PATHS = ("/health", "/progress")
 
 _STEPS: list[str] = []
 
@@ -328,11 +348,22 @@ def browser_smoke(api: str, web: str) -> None:
     console_errors: list[str] = []
     page_errors: list[str] = []
     bad_responses: list[str] = []
+    login_calls: list[str] = []
+    progress_sync: dict[str, int] = {}   # path → last status seen from the page
+    api_origin = urlsplit(api)[:2]
 
     def note_response(resp) -> None:
-        if resp.status >= 400 and not any(
-                allowed in resp.url for allowed in RESOURCE_404_ALLOWLIST):
-            bad_responses.append(f"HTTP {resp.status} {resp.url}")
+        url = urlsplit(resp.url)
+        on_api = url[:2] == api_origin
+        if on_api and url.path in PROGRESS_SYNC_PATHS:
+            progress_sync[url.path] = resp.status
+        if on_api and url.path in LOGIN_PATHS:
+            login_calls.append(f"{resp.request.method} {url.path}")
+        if resp.status < 400:
+            return
+        if any(allowed in resp.url for allowed in RESOURCE_404_ALLOWLIST):
+            return
+        bad_responses.append(f"HTTP {resp.status} {resp.url}")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -355,14 +386,8 @@ def browser_smoke(api: str, web: str) -> None:
         page.on("pageerror", lambda e: page_errors.append(str(e)))
         page.on("response", note_response)
 
+        # Open demo: no login of any kind; the app renders right away.
         page.goto(f"{web}/{INDEX}")
-
-        # Login gate (BU_AUTH_DISABLED=1 dev creds — api/auth.py)
-        page.fill("#bu-gate-u", "admin")
-        page.fill("#bu-gate-p", "password")
-        page.click("#bu-gate-form button[type=submit]")
-        page.wait_for_selector("#bu-gate", state="hidden")
-        ok("login gate accepted admin/password")
 
         # App shell up = in-browser Babel compiled every .jsx (zero-build
         # dev mode contract). Fresh profile defaults to the agent view.
@@ -374,6 +399,7 @@ def browser_smoke(api: str, web: str) -> None:
             print("  … app shell slow (CDN?) — reloading once", file=sys.stderr)
             page.reload()
             page.wait_for_selector('nav.nav button[data-nav="university"]')
+        ok("open demo: app shell rendered with no login")
 
         for tab in AGENT_TABS:
             page.click(f'button[data-nav="{tab}"]')
@@ -401,6 +427,17 @@ def browser_smoke(api: str, web: str) -> None:
             }""")
         ok("human view toggle → topic map rendered")
 
+        # Progress sync: progress.js GETs /health, then /progress, on load.
+        deadline = time.monotonic() + 30
+        while (not all(p in progress_sync for p in PROGRESS_SYNC_PATHS)
+               and time.monotonic() < deadline):
+            page.wait_for_timeout(250)
+        sync = {p: progress_sync.get(p) for p in PROGRESS_SYNC_PATHS}
+        if any(status != 200 for status in sync.values()):
+            die(f"progress sync from the page: {sync} (want 200 for each; "
+                "None = never requested)")
+        ok("progress sync: page got 200 from /health and /progress")
+
         page.wait_for_timeout(1500)  # let late async fetches surface errors
         browser.close()
 
@@ -409,13 +446,167 @@ def browser_smoke(api: str, web: str) -> None:
         for e in real_errors:
             print(f"  console/network error: {e}", file=sys.stderr)
         die(f"{len(real_errors)} console/network error(s) during the browser smoke")
-    ok("zero console errors across login + 7 screens")
+    ok("zero console errors across 7 screens")
+    if login_calls:
+        die(f"the open demo must not log in; the page called {login_calls}")
+    ok("no login requests from the page")
+
+
+def open_demo_api_smoke(api: str, password: str) -> None:
+    """BU_OPEN_DEMO=1 serves tokenless requests as the demo account but
+    keeps auth ON: a token that is sent is still verified."""
+    print("API smoke, auth on + BU_OPEN_DEMO=1:")
+    status, body = request("GET", f"{api}/atp/standard")
+    if status != 200:
+        die(f"open demo: tokenless GET /atp/standard → {status} {body}")
+    status, body = request("GET", f"{api}/atp/standard",
+                           headers={"Authorization": "Bearer not-a-token"})
+    if status != 401:
+        die(f"open demo must still reject a bad token: got {status} {body}")
+    status, body = request("POST", f"{api}/login",
+                           {"username": "admin", "password": password})
+    token = body.get("token")
+    status2, _ = request("GET", f"{api}/atp/standard",
+                         headers={"Authorization": f"Bearer {token}"})
+    if status != 200 or not token or status2 != 200:
+        die(f"open demo: real login/token must still work ({status}, {status2})")
+    ok("tokenless → 200 as the demo account; bad token → 401; real token → 200")
+
+
+def auth_on_browser_smoke(api: str, web: str, open_demo: bool) -> None:
+    """The site against a backend with auth ON, from a stale token an
+    earlier page version left in the tab (it had a hidden demo sign-in).
+
+    open_demo=True is production (BU_OPEN_DEMO=1): no login, no credentials
+    sent, live data. open_demo=False is the site deployed before that
+    backend setting: auth 401s must reach the page with CORS headers
+    (CORSMiddleware is outermost in api/server.py) and the page must fall
+    back to bundled demo data without reloading. It used to reload on every
+    401 to re-show a login screen that no longer exists: a reload loop.
+    """
+    from playwright.sync_api import sync_playwright
+
+    from playwright.sync_api import Error as PWError
+    from playwright.sync_api import TimeoutError as PWTimeoutError
+
+    label = "BU_OPEN_DEMO=1" if open_demo else "no open demo (deploy-order fallback)"
+    print(f"Browser smoke, auth on + {label}:")
+    loads = 0
+    login_calls: list[str] = []
+    with_auth: list[str] = []      # API requests that carried a bearer token
+    api_ok: list[str] = []         # protected API paths that answered 2xx
+    api_401s: list[str] = []
+    blocked: list[str] = []        # API requests the browser failed/blocked
+    page_errors: list[str] = []
+    api_origin = urlsplit(api)[:2]
+
+    def on_load(_page) -> None:
+        nonlocal loads
+        loads += 1
+
+    def on_request(req) -> None:
+        url = urlsplit(req.url)
+        if url[:2] == api_origin and req.headers.get("authorization"):
+            with_auth.append(f"{req.method} {url.path}")
+
+    def on_response(resp) -> None:
+        url = urlsplit(resp.url)
+        if url[:2] != api_origin:
+            return
+        if url.path in LOGIN_PATHS:
+            login_calls.append(f"{resp.request.method} {url.path}")
+        elif resp.status == 401:
+            api_401s.append(url.path)
+        elif resp.ok and url.path != "/health":
+            api_ok.append(url.path)
+
+    def on_failed(req) -> None:
+        url = urlsplit(req.url)
+        if url[:2] == api_origin:
+            blocked.append(f"{req.method} {url.path}: {req.failure}")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        context = browser.new_context()
+        context.add_init_script(
+            "try { if (!sessionStorage.getItem('ci_seeded')) {"
+            " sessionStorage.setItem('ci_seeded', '1');"
+            " sessionStorage.setItem('bu_auth_token', 'stale.ci.token'); }"
+            " } catch (_) {}")
+        page = context.new_page()
+        page.set_default_timeout(120_000)
+        page.route("**/config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body=f'window.BU_API_BASE = "{api}";\n'))
+        page.on("load", on_load)
+        page.on("request", on_request)
+        page.on("response", on_response)
+        page.on("requestfailed", on_failed)
+        page.on("pageerror", lambda e: page_errors.append(str(e)))
+
+        page.goto(f"{web}/{INDEX}")
+        try:
+            page.wait_for_selector('nav.nav button[data-nav="university"]')
+        except PWTimeoutError:
+            print("  … app shell slow (CDN?) — reloading once", file=sys.stderr)
+            page.reload()
+            loads -= 1             # our reload, not the page's
+            page.wait_for_selector('nav.nav button[data-nav="university"]')
+
+        # Shell is up (CDN scripts cached): a tab that can't settle in 30 s
+        # means the page is reloading under us, so say that, not a timeout.
+        page.set_default_timeout(30_000)
+        try:
+            for tab in AGENT_TABS:
+                page.click(f'button[data-nav="{tab}"]')
+                page.wait_for_function(
+                    """(tab) => {
+                        const btn  = document.querySelector(`button[data-nav="${tab}"]`);
+                        const main = document.querySelector('main');
+                        return btn && btn.classList.contains('active') &&
+                               main && main.innerText.trim().length > 80;
+                    }""",
+                    arg=tab)
+            page.wait_for_timeout(4000)  # room for a reload loop to show itself
+        except PWError as e:
+            browser.close()
+            die(f"agent tabs never settled ({e.__class__.__name__}); the page "
+                f"loaded {loads}× — a 401 reload loop?")
+        token = page.evaluate("sessionStorage.getItem('bu_auth_token')")
+        browser.close()
+
+    if page_errors:
+        die(f"uncaught page errors: {page_errors[:3]}")
+    if loads != 1:
+        die(f"page loaded {loads}× — a 401 reload loop (want exactly 1)")
+    if login_calls:
+        die(f"the open demo must not log in; the page called {login_calls}")
+    if with_auth or token:
+        die(f"the page must send no credentials (sent on {with_auth[:4]}; "
+            f"token left in sessionStorage: {token!r})")
+    ok("page loaded once, no login requests, no credentials sent")
+    if blocked:
+        die(f"API requests failed in the browser: {blocked[:4]}")
+    paths = ", ".join(sorted(set(api_ok if open_demo else api_401s)))
+    if open_demo:
+        if api_401s or not api_ok:
+            die(f"open demo: tokenless API calls must answer 200 "
+                f"(401s: {sorted(set(api_401s))}, 2xx: {sorted(set(api_ok))})")
+        ok(f"tokenless API calls answered 200 ({paths}); tabs on live data")
+    else:
+        if not api_401s:
+            die("auth 401s must reach the page with CORS headers; saw none")
+        ok(f"auth 401s reach the page with CORS headers ({paths}); "
+           "tabs rendered on bundled demo data")
 
 
 def main() -> int:
     api_port, web_port = free_port(), free_port()
     api = f"http://127.0.0.1:{api_port}"
     web = f"http://127.0.0.1:{web_port}"
+    auth_api_port, demo_api_port = free_port(), free_port()
+    auth_api = f"http://127.0.0.1:{auth_api_port}"    # auth on, no open demo
+    demo_api = f"http://127.0.0.1:{demo_api_port}"    # auth on + BU_OPEN_DEMO=1
 
     procs: list[subprocess.Popen] = []
     with tempfile.TemporaryDirectory(prefix="bu-ci-smoke-") as tmp:
@@ -434,22 +625,49 @@ def main() -> int:
             "DATA_ENCRYPTION_KEY": "ci-smoke-data-key-0123456789abcdef",
             "EVIDENCE_SIGNING_KEY": "ci-smoke-evidence-key-0123456789ab",
         })
+        # Pass 5 backends: auth ENABLED (random secrets per run), one with
+        # the production open-demo setting and one without it.
+        auth_password = secrets.token_urlsafe(24)
+        auth_env = {k: v for k, v in env.items() if k != "BU_AUTH_DISABLED"}
+        auth_env.update({
+            "DATABASE_URL": f"sqlite:///{tmp}/ci-auth.db",
+            "BU_AUTH_PASSWORD": auth_password,
+            "BU_AUTH_SECRET": secrets.token_urlsafe(48),
+        })
+        demo_env = dict(auth_env, BU_OPEN_DEMO="1",
+                        DATABASE_URL=f"sqlite:///{tmp}/ci-demo.db")
         try:
             procs.append(subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "api.server:app",
                  "--host", "127.0.0.1", "--port", str(api_port)],
                 cwd=ROOT, env=env))
             procs.append(subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "api.server:app",
+                 "--host", "127.0.0.1", "--port", str(auth_api_port),
+                 "--log-level", "warning"],
+                cwd=ROOT, env=auth_env))
+            procs.append(subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "api.server:app",
+                 "--host", "127.0.0.1", "--port", str(demo_api_port),
+                 "--log-level", "warning"],
+                cwd=ROOT, env=demo_env))
+            procs.append(subprocess.Popen(
                 [sys.executable, "-m", "http.server", str(web_port),
                  "--bind", "127.0.0.1", "--directory", str(DESIGN_DIR)],
                 cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
 
             wait_for(f"{api}/health", 90, "uvicorn api.server:app")
+            wait_for(f"{auth_api}/health", 90, "uvicorn api.server:app (auth on)")
+            wait_for(f"{demo_api}/health", 90, "uvicorn api.server:app (open demo)")
             wait_for(f"{web}/{INDEX}", 30, "http.server design/")
-            print(f"servers up: api={api} web={web}")
+            print(f"servers up: api={api} auth-api={auth_api} "
+                  f"demo-api={demo_api} web={web}")
 
             api_smoke(api)
             browser_smoke(api, web)
+            open_demo_api_smoke(demo_api, auth_password)
+            auth_on_browser_smoke(demo_api, web, open_demo=True)
+            auth_on_browser_smoke(auth_api, web, open_demo=False)
         finally:
             for p in procs:
                 p.terminate()
