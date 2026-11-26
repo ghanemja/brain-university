@@ -155,6 +155,7 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script type="text/babel" src="screens/courses.jsx?v=1"></script>
   <script type="text/babel" src="screens/metro-map.jsx?v=1"></script>
   <script type="text/babel" src="screens/metro-ride.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-progress.jsx?v=1"></script>
 
   <!-- ATP agent-view screens -->
   <script type="text/babel" src="screens/atp-university.jsx?v=1"></script>
@@ -206,7 +207,7 @@ const SCREENS_AGENT = [
 // Human top bar: four places plus a "More" menu for everything else.
 const NAV_HUMAN = [
   { id: "map",  label: "Map" },
-  { id: "ride", label: "Learn", also: ["walk"] },   // "walk" = the full lesson page
+  { id: "ride", label: "Learn", also: ["walk", "summit"] },   // the full lesson page, the end-of-ride summary
   { id: "research", label: "Research", items: [
     { id: "arxivis",  label: "Papers",        note: "arXivis: today's papers, explained" },
     { id: "openprob", label: "Open problems", note: "Unsolved questions to work on" },
@@ -219,7 +220,6 @@ const NAV_HUMAN = [
     { id: "podcast",   label: "Podcast",      note: "Listen to a topic" },
     { id: "trailhead", label: "Trailhead",    note: "The original start screen" },
     { id: "branch",    label: "Bridge",       note: "How changing lines works" },
-    { id: "summit",    label: "Summit",       note: "Your last ride's summary" },
   ] },
 ];
 
@@ -340,9 +340,10 @@ function App() {
 
   // Visited set for visualizations
   const visited = useMemo(() => {
-    if (!tour) return new Set();
-    return new Set(tour.slice(0, stopIdx + 1).map(s => s.node));
-  }, [tour, stopIdx]);
+    const seen = new Set(window.BU_PROGRESS ? window.BU_PROGRESS.doneSet() : []);
+    if (tour) tour.slice(0, stopIdx + 1).forEach(s => seen.add(s.node));
+    return seen;
+  }, [tour, stopIdx, explorerOpen]);
 
   // Switch Human ◦ Agent view: close every overlay, land on the view's home.
   const switchView = useCallback((v) => {
@@ -583,11 +584,22 @@ function App() {
           <BranchStandalone onOpen={() => { setScreen("walk"); if (!tour) startTour("Reynolds_number"); setTimeout(() => setBranch(true), 300); }} />
         )}
         {screen === "summit" && (
-          <Summit tour={tour || BU_DATA.planTour("Reynolds_number")}
-                  onAnotherTrail={() => setScreen("map")}
-                  onDashboard={() => setScreen("dashboard")} />
+          typeof MetroArrival !== "undefined"
+            ? <MetroArrival tour={tour}
+                            onMap={() => setScreen("map")}
+                            onProgress={() => setScreen("dashboard")}
+                            onStartRide={startRide} />
+            : <Summit tour={tour || BU_DATA.planTour("Reynolds_number")}
+                      onAnotherTrail={() => setScreen("map")}
+                      onDashboard={() => setScreen("dashboard")} />
         )}
-        {screen === "dashboard" && (
+        {screen === "dashboard" && typeof MetroProgress !== "undefined" && (
+          <MetroProgress onMap={() => setScreen("map")}
+                         onStartRide={startRide}
+                         onResumeRide={resumeRide}
+                         onShow3D={() => goto("explorer")} />
+        )}
+        {screen === "dashboard" && typeof MetroProgress === "undefined" && (
           <Dashboard learner={learner}
                      onResume={(startNode) => { startTour(startNode || "Reynolds_number"); }}
                      onResumeRide={resumeRide}

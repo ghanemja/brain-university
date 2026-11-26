@@ -943,3 +943,47 @@ body::before {
 @media (max-width: 760px) {
   .topbar .brand-tot > span:last-child { display: none; }
 }
+
+/* ==========================================================================
+   Progress and End of the line (screens/metro-progress.jsx)
+   ========================================================================== */
+.metro-stack { flex-direction: column; flex-wrap: nowrap; align-items: stretch; padding: 20px max(20px, calc((100% - 1180px) / 2)); }
+.metro-pad { padding: 20px 22px; min-width: 0; }
+.metro-headrow { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 20px; margin-bottom: 14px; }
+.metro-headrow > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.metro-h1 { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; text-wrap: balance; }
+.metro-h2 { margin: 0 0 10px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.metro-headrow .metro-h2 { margin: 0; }
+.metro-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.metro-cta-inline { height: 48px; padding: 0 20px; font-size: 16px; }
+.metro-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.metro-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 2px solid var(--m-rule); border-radius: 8px; }
+.metro-stat b { font-size: 30px; line-height: 1.1; font-weight: 700; }
+.metro-stat b small { font-size: 16px; font-weight: 600; color: var(--m-muted); }
+.metro-stat span { font-size: 14px; color: var(--m-muted); }
+.metro-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 20px; align-items: start; }
+.metro-mastery, .metro-rides { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.metro-mastery li + li, .metro-rides li + li { border-top: 2px solid var(--m-rule); }
+.metro-mastery button {
+  width: 100%; display: grid; grid-template-columns: minmax(120px, 190px) 1fr; gap: 4px 14px; align-items: center;
+  padding: 10px 0; border: 0; background: none; font: inherit; color: var(--m-ink); text-align: left; cursor: pointer;
+}
+.metro-mastery button > .metro-note { grid-column: 2; }
+.metro-mastery-name { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.metro-mastery-name i { flex: none; width: 22px; height: 7px; border-radius: 4px; }
+.metro-mastery-bar { height: 10px; border-radius: 5px; background: #eceee9; overflow: hidden; }
+.metro-mastery-bar > span { display: block; height: 100%; border-radius: 5px; }
+.metro-rides li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
+.metro-rides li > div { display: flex; flex-direction: column; gap: 6px; }
+.metro-rides b { font-size: 15.5px; }
+.metro-mini { display: flex; align-items: center; }
+.metro-mini b { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 3px solid; }
+.metro-mini i { flex: 0 1 22px; min-width: 8px; height: 5px; }
+.metro-route { list-style: none; margin: 18px 0; padding: 0; display: flex; flex-wrap: wrap; row-gap: 14px; }
+.metro-route li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 140px; }
+.metro-route li > b { position: relative; z-index: 1; width: 20px; height: 20px; border-radius: 50%; border: 3px solid; }
+.metro-route li > i { position: absolute; top: 7px; right: 50%; width: 100%; height: 6px; }
+.metro-route li > span { font-size: 14px; font-weight: 600; text-align: center; line-height: 1.25; }
+.metro-arrive-text { margin: 14px 0 0; font-size: 16px; line-height: 1.5; color: var(--m-ink-2); }
+.metro-thumbs { display: flex; gap: 8px; }
+.metro-textarea { width: 100%; height: auto; min-height: 76px; padding: 10px 12px; margin-top: 6px; resize: vertical; }
