@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CI smoke — docs/HARDENING.md Phase 5 (login → 6 agent screens render).
+CI smoke — docs/HARDENING.md Phase 5 (open demo → 6 agent screens render).
 
 Boots the real stack the way the demo runs it, then drives a browser
 through the frontend AND exercises the hardened API paths end-to-end:
@@ -16,9 +16,11 @@ through the frontend AND exercises the hardened API paths end-to-end:
        award) → evidence + chain verify → license lifecycle
        (issue → gated /experts chat → revoke → 403)
   4. Playwright chromium:
-       login gate (admin/password) → all 6 agent-view tabs render
-       non-empty main content → zero console errors → Human view toggle
-       renders the topic map.
+       open demo (no login screen; the page's silent auto-login is
+       rejected by the CI backend and the app runs tokenless) → all 6
+       agent-view tabs render non-empty main content → Human view toggle
+       renders the topic map → the page's progress sync gets 200 from
+       /health and /progress → zero console errors.
 
 Runnable locally and in CI (identical behavior):
 
@@ -39,6 +41,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = ROOT / "design"
@@ -55,6 +58,22 @@ AGENT_TABS = ["university", "agents", "certs", "marketplace", "governance", "vau
 #:                             404 IS the zero-build dev mode working as
 #:                             designed (page falls back to in-browser Babel)
 RESOURCE_404_ALLOWLIST = ("favicon.ico", ".compiled/manifest.json")
+
+#: API paths whose 401 is EXPECTED, matched exactly (POST, 401, on the API
+#: origin — anything else from them still fails the smoke). The open-demo page
+#: (design/Brain University.html) has no login screen: on load it POSTs a
+#: hard-coded demo credential to /login and, when that is refused, to
+#: /auth/login. That credential is the HOSTED demo's; this backend runs
+#: BU_AUTH_DISABLED=1 with the dev password "password", so both refuse it
+#: with 401 and the page carries on without a token, which works because
+#: auth is disabled. The 401s are the page's designed fallback, not a fault:
+#: the page has no way to tell an auth-disabled server from one with a
+#: different password, and CI can't verify a hosted credential anyway.
+SILENT_LOGIN_401_PATHS = ("/login", "/auth/login")
+
+#: Requests the Human view's progress sync (design/progress.js) makes on
+#: load; each must be seen from the page with 200 before the smoke ends.
+PROGRESS_SYNC_PATHS = ("/health", "/progress")
 
 _STEPS: list[str] = []
 
@@ -328,11 +347,24 @@ def browser_smoke(api: str, web: str) -> None:
     console_errors: list[str] = []
     page_errors: list[str] = []
     bad_responses: list[str] = []
+    silent_login_401s: list[str] = []
+    progress_sync: dict[str, int] = {}   # path → last status seen from the page
+    api_origin = urlsplit(api)[:2]
 
     def note_response(resp) -> None:
-        if resp.status >= 400 and not any(
-                allowed in resp.url for allowed in RESOURCE_404_ALLOWLIST):
-            bad_responses.append(f"HTTP {resp.status} {resp.url}")
+        url = urlsplit(resp.url)
+        on_api = url[:2] == api_origin
+        if on_api and url.path in PROGRESS_SYNC_PATHS:
+            progress_sync[url.path] = resp.status
+        if resp.status < 400:
+            return
+        if any(allowed in resp.url for allowed in RESOURCE_404_ALLOWLIST):
+            return
+        if (on_api and resp.status == 401 and resp.request.method == "POST"
+                and url.path in SILENT_LOGIN_401_PATHS):
+            silent_login_401s.append(url.path)
+            return
+        bad_responses.append(f"HTTP {resp.status} {resp.url}")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -355,14 +387,9 @@ def browser_smoke(api: str, web: str) -> None:
         page.on("pageerror", lambda e: page_errors.append(str(e)))
         page.on("response", note_response)
 
+        # Open demo: no login screen. The page silently POSTs its demo
+        # credential on load (SILENT_LOGIN_401_PATHS) and renders right away.
         page.goto(f"{web}/{INDEX}")
-
-        # Login gate (BU_AUTH_DISABLED=1 dev creds — api/auth.py)
-        page.fill("#bu-gate-u", "admin")
-        page.fill("#bu-gate-p", "password")
-        page.click("#bu-gate-form button[type=submit]")
-        page.wait_for_selector("#bu-gate", state="hidden")
-        ok("login gate accepted admin/password")
 
         # App shell up = in-browser Babel compiled every .jsx (zero-build
         # dev mode contract). Fresh profile defaults to the agent view.
@@ -374,6 +401,7 @@ def browser_smoke(api: str, web: str) -> None:
             print("  … app shell slow (CDN?) — reloading once", file=sys.stderr)
             page.reload()
             page.wait_for_selector('nav.nav button[data-nav="university"]')
+        ok("open demo: app shell rendered with no login screen")
 
         for tab in AGENT_TABS:
             page.click(f'button[data-nav="{tab}"]')
@@ -401,6 +429,18 @@ def browser_smoke(api: str, web: str) -> None:
             }""")
         ok("human view toggle → topic map rendered")
 
+        # Progress sync: progress.js waits up to 10 s for the silent login's
+        # token (none lands here), then GETs /health and /progress.
+        deadline = time.monotonic() + 30
+        while (not all(p in progress_sync for p in PROGRESS_SYNC_PATHS)
+               and time.monotonic() < deadline):
+            page.wait_for_timeout(250)
+        sync = {p: progress_sync.get(p) for p in PROGRESS_SYNC_PATHS}
+        if any(status != 200 for status in sync.values()):
+            die(f"progress sync from the page: {sync} (want 200 for each; "
+                "None = never requested)")
+        ok("progress sync: page got 200 from /health and /progress")
+
         page.wait_for_timeout(1500)  # let late async fetches surface errors
         browser.close()
 
@@ -409,7 +449,10 @@ def browser_smoke(api: str, web: str) -> None:
         for e in real_errors:
             print(f"  console/network error: {e}", file=sys.stderr)
         die(f"{len(real_errors)} console/network error(s) during the browser smoke")
-    ok("zero console errors across login + 7 screens")
+    if silent_login_401s:
+        print(f"  · expected: silent demo login refused by the CI backend "
+              f"(401 on {', '.join(silent_login_401s)}); app ran tokenless")
+    ok("zero console errors across 7 screens")
 
 
 def main() -> int:
