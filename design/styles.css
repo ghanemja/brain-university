@@ -987,3 +987,62 @@ body::before {
 .metro-arrive-text { margin: 14px 0 0; font-size: 16px; line-height: 1.5; color: var(--m-ink-2); }
 .metro-thumbs { display: flex; gap: 8px; }
 .metro-textarea { width: 100%; height: auto; min-height: 76px; padding: 10px 12px; margin-top: 6px; resize: vertical; }
+
+/* ==========================================================================
+   Lesson page (screens/metro-lesson.jsx)
+   ========================================================================== */
+.metro-lesson-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .metro-lesson-grid { grid-template-columns: minmax(0, 1fr); } }
+.metro-lesson-main { padding: 26px 30px; }
+.metro-lesson-main .metro-h1 { font-size: 34px; margin-top: 6px; }
+.metro-lesson-side { position: sticky; top: 76px; }
+.metro-lesson-sec { margin-top: 26px; padding-top: 22px; border-top: 2px solid var(--m-rule); }
+.metro-prose { max-width: 70ch; font-size: 17.5px; line-height: 1.6; color: var(--m-ink-2); }
+.metro-prose p { margin: 0 0 12px; }
+.metro-prose ul, .metro-prose ol { margin: 0 0 12px; padding-left: 26px; }
+.metro-prose li { margin: 4px 0; }
+.metro-prose h3 { margin: 18px 0 8px; font-size: 18px; color: var(--m-ink); }
+.metro-prose strong { color: var(--m-ink); }
+.metro-math { font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif; font-size: 1.05em; white-space: nowrap; }
+.metro-math-block { display: block; margin: 8px 0 14px; padding: 10px 14px; border-radius: 6px; background: var(--m-bg); white-space: normal; overflow-x: auto; }
+.metro-ideas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; max-width: 70ch; }
+.metro-ideas li { display: flex; gap: 14px; align-items: flex-start; }
+.metro-ideas-num {
+  flex: none; width: 30px; height: 30px; border-radius: 50%; border: 3px solid; display: grid; place-items: center;
+  font-weight: 700; font-size: 14px; background: #ffffff;
+}
+.metro-ideas li > div { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; font-size: 16px; line-height: 1.5; color: var(--m-ink-2); }
+.metro-ideas b { color: var(--m-ink); }
+.metro-sim { border: 2px solid var(--m-rule); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.metro-quiz { display: flex; flex-direction: column; gap: 12px; max-width: 70ch; }
+.metro-quiz-q { margin: 0; font-size: 17px; font-weight: 700; }
+.metro-quiz-choices { display: flex; flex-direction: column; gap: 8px; }
+.metro-choice {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; text-align: left;
+  border: 2px solid var(--m-rule); border-radius: 8px; background: #ffffff; color: var(--m-ink);
+  font: inherit; font-size: 15.5px; line-height: 1.45; cursor: pointer;
+}
+.metro-choice > span:first-child {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--m-bg); font-weight: 700; font-size: 13px;
+}
+.metro-choice:hover:not(:disabled) { border-color: var(--m-muted); }
+.metro-choice.picked { border-color: var(--m-ink); }
+.metro-choice.picked > span:first-child { background: var(--m-ink); color: #ffffff; }
+.metro-choice.right { border-color: #00703c; background: #eef7f1; }
+.metro-choice.right > span:first-child { background: #00703c; color: #ffffff; }
+.metro-choice.wrong { border-color: var(--m-red); background: #fbeeeb; }
+.metro-choice.wrong > span:first-child { background: var(--m-red); color: #ffffff; }
+.metro-choice:disabled { cursor: default; }
+.metro-quiz > .metro-btn { align-self: flex-start; }
+.metro-quiz-result { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--m-ink-2); }
+.metro-practise summary { cursor: pointer; font-size: 17px; font-weight: 700; }
+.metro-practise[open] summary { margin-bottom: 12px; }
+.metro-reading { margin: 0 0 8px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+.metro-reading a { color: var(--m-link); }
+.metro-lesson-nav {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-top: 28px; padding-top: 18px;
+  border-top: 2px solid var(--m-rule);
+}
+.metro-lesson-nav > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.metro-side-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 16px; }

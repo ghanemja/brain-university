@@ -532,3 +532,5 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onP
 }
 
 window.MetroRide = MetroRide;
+// Shared with the lesson page (metro-lesson.jsx).
+window.BU_METRO_TEXT = { tex: rideTex, plain: ridePlain, clip: rideClip, papersFor, ratings: RIDE_RATINGS, when: rideWhen };

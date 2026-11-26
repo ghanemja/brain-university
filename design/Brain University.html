@@ -156,6 +156,7 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script type="text/babel" src="screens/metro-map.jsx?v=1"></script>
   <script type="text/babel" src="screens/metro-ride.jsx?v=1"></script>
   <script type="text/babel" src="screens/metro-progress.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-lesson.jsx?v=1"></script>
 
   <!-- ATP agent-view screens -->
   <script type="text/babel" src="screens/atp-university.jsx?v=1"></script>
@@ -569,7 +570,17 @@ function App() {
         {screen === "trailhead" && (
           <Trailhead learner={learner} onPickStart={startTour} />
         )}
-        {screen === "walk" && tour && (
+        {screen === "walk" && tour && typeof MetroLesson !== "undefined" && (
+          <MetroLesson tour={tour} idx={stopIdx}
+                       onAdvance={advance}
+                       onJumpTo={(i) => setStopIdx(i)}
+                       onRide={() => setScreen("ride")}
+                       onBranch={handleBranch}
+                       onSummit={handleSummit}
+                       onShow3D={() => { setExplorer(true); setExplorerNode(tour[stopIdx].node); }}
+                       onPapers={() => goto("arxivis")} />
+        )}
+        {screen === "walk" && tour && typeof MetroLesson === "undefined" && (
           <Walk tour={tour} idx={stopIdx} layout={t.lessonLayout}
                 onAdvance={advance}
                 onJumpTo={(i) => typeof i === "number" ? setStopIdx(i) : setScreen("map")}
@@ -723,15 +734,6 @@ function App() {
               { value: "mono",    label: "Mono" },
             ]}
             onChange={(v) => setTweak('displayFont', v)} />
-        </TweakSection>
-        <TweakSection label="Lesson view">
-          <TweakRadio label="Layout" value={t.lessonLayout}
-            options={[
-              { value: "postcard",   label: "Postcard" },
-              { value: "split",      label: "Split" },
-              { value: "full-bleed", label: "Spread" },
-            ]}
-            onChange={(v) => setTweak('lessonLayout', v)} />
         </TweakSection>
         <TweakSection label="Visuals">
           <TweakToggle label="Cinematic auto-orbit" value={t.cinematicCamera}
