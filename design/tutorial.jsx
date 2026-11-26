@@ -31,7 +31,7 @@ const SLIDES = [
     tag: "01 · MAP",
     title: "Every topic is a train line.",
     body:
-      "The Map is home. Each coloured line is a topic and each stop is one idea, about 5 minutes. White pills mark stops where two topics link, so you can change lines. Say how long you have (5, 15 or 30 minutes) and the part of each line you can reach turns full colour. Search for what you want to learn, then press Start ride.",
+      "The Map is home. Each coloured line is a topic and each stop is one idea, about 5 minutes. White pills mark stops where two topics link, so you can change lines. Say how long you have (5, 15 or 30 minutes) and the part of each line you can reach turns full colour. Click any stop to start there, or search for what you want to learn, then press Start ride. Stops you've ridden get a check, and your next ticket starts after them.",
     highlight: "map",
     tryIt: "map",
     cta: "Open the map",

@@ -47,6 +47,50 @@ const MOCK_TRAILS = [
   },
 ];
 
+// Real history from BU_PROGRESS (rides on the Map / Learn screens), shaped
+// like the demo trails so the same cards render it. Null when this browser
+// hasn't ridden anything yet, in which case the dashboard stays a demo.
+function _ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 2) return "just now";
+  if (m < 60) return m + " min ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
+  const d = Math.round(h / 24);
+  return d === 1 ? "yesterday" : d + " days ago";
+}
+function _realHistory() {
+  const P = window.BU_PROGRESS;
+  if (!P) return null;
+  const rides = P.rides();
+  if (!P.doneCount() && !rides.length) return null;
+  const node = id => BU_DATA.NODES.find(n => n.id === id);
+  const nameOf = id => (node(id) || {}).name || String(id).replace(/_/g, " ");
+  const lineOf = c => ((BU_DATA.CLUSTERS[c] || {}).name || "?");
+  const net = window.BU_METRO && window.BU_METRO.network ? window.BU_METRO.network() : null;
+  const colorOf = c => (net && net.lineOfCluster[c] ? net.lineOfCluster[c].color : (BU_DATA.CLUSTERS[c] || {}).color || "#d4351c");
+  const done = P.doneSet();
+  const total = net ? net.lines.reduce((a, L) => a + L.stops.length, 0) : BU_DATA.NODES.filter(n => !n.kind).length;
+  const courses = new Set([...done].map(id => (node(id) || {}).cluster).filter(c => c !== undefined));
+  const trails = rides.map(r => {
+    const lines = [...new Set(r.tour.map(s => s.cluster))];
+    const here = r.tour[Math.min(r.idx, r.tour.length - 1)];
+    return {
+      id: r.id,
+      title: r.tour.length === 1 ? nameOf(r.tour[0].node)
+        : nameOf(r.tour[0].node) + " → " + nameOf(r.tour[r.tour.length - 1].node),
+      started: _ago(r.updated),
+      progress: r.finished ? 1 : r.idx / r.tour.length,
+      stops: r.tour.length, courses: lines.length,
+      summary: r.finished
+        ? "Finished the " + lines.map(lineOf).join(" and ") + (lines.length > 1 ? " lines." : " line.")
+        : "Stopped at " + nameOf(here.node) + " on the " + lineOf(here.cluster) + " line.",
+      color: colorOf(r.tour[0].cluster),
+    };
+  });
+  return { done, total, courses: courses.size, trails, streak: P.streak() };
+}
+
 // Plain-English RL metric cell with hover-tooltip explaining the math.
 function MetricCell({ label, value, valueColor, tooltip, jargon }) {
   const [hover, setHover] = useState(false);
@@ -87,10 +131,12 @@ function MetricCell({ label, value, valueColor, tooltip, jargon }) {
   );
 }
 
-function Dashboard({ learner, onResume, onNewTrail }) {
-  const totalNodesVisited = 14;
-  const totalCourses = 4;
-  const totalConcepts = BU_DATA.NODES.length;
+function Dashboard({ learner, onResume, onResumeRide, onNewTrail }) {
+  const real = useMemo(_realHistory, []);
+  const totalNodesVisited = real ? real.done.size : 14;
+  const totalCourses = real ? real.courses : 4;
+  const totalConcepts = real ? real.total : BU_DATA.NODES.length;
+  const visitedSet = useMemo(() => (real ? real.done : _demoVisitedSet()), [real]);
   return (
     <div style={{ minHeight: "calc(100vh - 56px)" }}>
       <div style={{ position: "absolute", left: 0, right: 0, top: 56, pointerEvents: "none", opacity: 0.45 }}>
@@ -101,18 +147,25 @@ function Dashboard({ learner, onResume, onNewTrail }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32 }}>
           <div>
             <div className="t-tag" style={{ color: "var(--c-ink-muted)" }}>
-              {learner?.interest ? "WELCOME BACK" : "DEMO DASHBOARD"}
+              {real ? "YOUR PROGRESS" : learner?.interest ? "WELCOME BACK" : "DEMO DASHBOARD"}
             </div>
             <h1 className="t-display" style={{ margin: "6px 0 0" }}>
               {learner?.name || "Learner"}
             </h1>
             <p className="t-cap" style={{ margin: "6px 0 0" }}>
-              {totalNodesVisited} concepts walked · {totalCourses} courses entered ·
-              {" "}<span style={{ color: "var(--c-ink-muted)" }}>{totalConcepts - totalNodesVisited} concepts unwalked</span>
+              {real
+                ? <>{totalNodesVisited} stops ridden · {totalNodesVisited * 5} minutes · {totalCourses} {totalCourses === 1 ? "line" : "lines"} entered ·{" "}</>
+                : <>{totalNodesVisited} concepts walked · {totalCourses} courses entered ·{" "}</>}
+              <span style={{ color: "var(--c-ink-muted)" }}>{Math.max(0, totalConcepts - totalNodesVisited)} {real ? "stops to go" : "concepts unwalked"}</span>
             </p>
+            {!real && (
+              <p className="t-cap" style={{ margin: "4px 0 0", color: "var(--c-ink-muted)" }}>
+                Ride a line on the Map and your real progress replaces this demo.
+              </p>
+            )}
           </div>
           <button className="btn primary" onClick={onNewTrail}>
-            ▲ Plan a new trail
+            Plan a ride on the map
           </button>
         </div>
 
@@ -133,7 +186,7 @@ function Dashboard({ learner, onResume, onNewTrail }) {
           </div>
           <div style={{ height: 360, background: "var(--c-bg-elev-2)" }}>
             <BrainGraph3D
-              visited={_demoVisitedSet()}
+              visited={visitedSet}
               showLabels="hubs"
               cinematic={true}
               background="var(--c-bg-elev-2)"
@@ -143,15 +196,19 @@ function Dashboard({ learner, onResume, onNewTrail }) {
 
         {/* Trails grid */}
         <div className="t-tag" style={{ color: "var(--c-ink-muted)", marginBottom: 12 }}>
-          YOUR TRAIL JOURNAL
+          {real ? "YOUR RIDES" : "YOUR TRAIL JOURNAL (DEMO)"}
         </div>
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px,1fr))",
           gap: 12,
         }}>
-          {MOCK_TRAILS.map(t => (
-            <TrailCard key={t.id} trail={t} onResume={() => onResume(t.start_node)} />
-          ))}
+          {real
+            ? real.trails.map(t => (
+                <TrailCard key={t.id} trail={t} onResume={() => onResumeRide && onResumeRide(t.id)} />
+              ))
+            : MOCK_TRAILS.map(t => (
+                <TrailCard key={t.id} trail={t} onResume={() => onResume(t.start_node)} />
+              ))}
           {/* Surprise me card */}
           <div className="card" style={{
             display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center",
@@ -211,8 +268,8 @@ function Dashboard({ learner, onResume, onNewTrail }) {
           </div>
           <div className="card recessed" style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
             <div className="t-tag" style={{ color: "var(--c-ink-muted)" }}>STREAK</div>
-            <div className="t-num" style={{ marginTop: 6, color: "var(--c-visited)" }}>4</div>
-            <div className="t-cap" style={{ marginTop: 2 }}>days walking</div>
+            <div className="t-num" style={{ marginTop: 6, color: "var(--c-visited)" }}>{real ? real.streak : 4}</div>
+            <div className="t-cap" style={{ marginTop: 2 }}>{real ? (real.streak === 1 ? "day riding" : "days riding") : "days walking (demo)"}</div>
           </div>
         </div>
       </div>

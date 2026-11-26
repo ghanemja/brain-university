@@ -238,6 +238,25 @@ function buildMetro() {
   const lineOfCluster = {};
   lines.forEach(L => { lineOfCluster[L.cid] = L; });
 
+  // Ride outward from any stop: along the drawn line for laid-out courses,
+  // on through the course's own order for stubs.
+  lines.forEach(L => {
+    if (L.lone) {
+      L.orderFrom = id => { const i = Math.max(0, L.stops.indexOf(id)); return L.stops.slice(i).concat(L.stops.slice(0, i)); };
+    } else {
+      const ids = L.stations.map(s => s.id);
+      L.orderFrom = id => contiguousOrder(ids, ids.indexOf(id) >= 0 ? id : L.stops[0]).map(i => ids[i]);
+    }
+  });
+
+  // Stops on other lines that this stop really links to.
+  const partnersAt = id => {
+    const me = byId[id];
+    if (!me) return [];
+    return (adj[id] || []).filter(n => byId[n].cluster !== me.cluster && lineOfCluster[byId[n].cluster])
+      .map(n => ({ line: lineOfCluster[byId[n].cluster], id: n }));
+  };
+
   // Courses a stop links to (its "Change here for …" list).
   const changesAt = id => {
     const me = byId[id];
@@ -267,7 +286,7 @@ function buildMetro() {
   const lastRow = Math.max(0, Math.floor((slot - 1) / 4));
   const height = Math.max(630, 700 + lastRow * 50 + 40 - 140);
 
-  return { lines, pills, pilled, changesAt, lineOfCluster, byId, height };
+  return { lines, pills, pilled, changesAt, partnersAt, lineOfCluster, byId, height };
 }
 
 let _metro = null;
@@ -276,29 +295,66 @@ function metroNetwork() {
   return _metro;
 }
 
-function stopsForTime(L, minutes) {
-  return Math.min(L.stops.length, Math.max(1, Math.round(minutes / MIN_PER_STOP)));
+function stopsForTime(minutes) {
+  return Math.max(1, Math.round(minutes / MIN_PER_STOP));
+}
+
+// A ticket: the stops a ride of `k` stops (k × 5 minutes) covers. It starts
+// at `startId` when the learner chose a stop, otherwise at the line's next
+// stop they haven't ridden. If the line runs out first, the ticket changes
+// once, at an interchange, onto a linked line, the way a journey planner
+// fills the time you have.
+function planRide(L, k, startId) {
+  const net = metroNetwork(), P = window.BU_PROGRESS;
+  const done = id => !!(P && P.isDone(id));
+  let first, again = false;
+  const explicit = !!startId && L.stops.indexOf(startId) >= 0;
+  if (explicit) first = L.orderFrom(startId);
+  else {
+    first = L.stops.filter(id => !done(id));
+    if (!first.length) { first = L.stops.slice(); again = true; }
+  }
+  const legs = [{ line: L, stops: first.slice(0, k) }];
+  const need = k - legs[0].stops.length;
+  if (need > 0) {
+    const taken = new Set(legs[0].stops);
+    let best = null;
+    legs[0].stops.slice().reverse().forEach(id => { // prefer changing at the last stop
+      net.partnersAt(id).forEach(p => {
+        if (p.line === L) return;
+        const cont = p.line.orderFrom(p.id).filter(n => !taken.has(n) && !done(n)).slice(0, need);
+        if (cont.length && (!best || cont.length > best.stops.length)) best = { line: p.line, stops: cont, at: id };
+      });
+    });
+    if (best) legs.push(best);
+  }
+  return { legs, stops: [].concat(...legs.map(g => g.stops)), again, explicit };
 }
 
 // The tour format every learning screen shares: [{ node, cluster, kind, rationale }].
-function rideTour(L, k) {
-  const net = metroNetwork();
-  return L.stops.slice(0, k).map((id, i) => {
-    const changes = net.changesAt(id).map(c => c.name);
-    return {
-      node: id,
-      cluster: L.cid,
-      kind: i === 0 ? "start" : i === k - 1 ? "capstone" : "deepen",
-      rationale: (i === 0 ? "Board the " + L.name + " line at " + net.byId[id].name + "."
-        : "Stop " + (i + 1) + " of " + k + " on the " + L.name + " line.")
-        + (changes.length ? " Change here for the " + listAnd(changes) + " line" + (changes.length > 1 ? "s." : ".") : ""),
-    };
-  });
+function rideTour(plan) {
+  const net = metroNetwork(), n = plan.stops.length, out = [];
+  plan.legs.forEach((g, gi) => g.stops.forEach((id, j) => {
+    const i = out.length, name = net.byId[id].name;
+    const changes = net.changesAt(id).filter(c => c !== g.line).map(c => c.name);
+    let why = i === 0 ? `Board the ${g.line.name} line at ${name}.`
+      : gi > 0 && j === 0 ? `Change to the ${g.line.name} line: ${net.byId[g.at].name} links to ${name}.`
+      : `Stop ${i + 1} of ${n} on the ${g.line.name} line.`;
+    if (changes.length) why += ` Change here for the ${listAnd(changes)} line${changes.length > 1 ? "s" : ""}.`;
+    out.push({
+      node: id, cluster: g.line.cid, rationale: why,
+      kind: i === 0 ? "start" : i === n - 1 ? "capstone" : gi > 0 && j === 0 ? "bridge" : "deepen",
+    });
+  }));
+  return out;
 }
 
 // ─── the little train on the map ─────────────────────────────────
-function trainPlan(L, k) {
-  const lit = L.order.slice(0, Math.min(k, L.stations.length));
+// It rides the stretch of a line between `ids` (the ticket's stops on it),
+// pausing at each, starting from the first.
+function trainPlan(L, ids) {
+  let lit = ids.map(id => L.stations.findIndex(s => s.id === id)).filter(i => i >= 0);
+  if (!lit.length) lit = [0];
   const ss = lit.map(i => mmProject(L.pts, L.cum, L.stations[i].x, L.stations[i].y));
   const sorted = ss.slice().sort((a, b) => a - b), start = sorted.indexOf(ss[0]), n = sorted.length - 1;
   const seq = [];
@@ -388,6 +444,7 @@ function writePref(key, value) {
 function MetroMap({ onStartRide }) {
   const net = metroNetwork();
   const LINES = net.lines;
+  const P = window.BU_PROGRESS;
   const [time, setTime] = useState(() => {
     const t = readPref("bu_metro_time", 15);
     return [5, 15, 30].indexOf(t) >= 0 ? t : 15;
@@ -397,58 +454,116 @@ function MetroMap({ onStartRide }) {
     const L = cid === null ? null : net.lineOfCluster[cid];
     return L ? L.index : 0;
   });
+  const [startId, setStartId] = useState(null); // a stop the learner chose to start at
   const [q, setQ] = useState("");
+  const [, rerender] = useState(0);
   useEffect(() => writePref("bu_metro_time", time), [time]);
   useEffect(() => writePref("bu_metro_line", LINES[sel].cid), [sel]);
+  useEffect(() => (P ? P.subscribe(() => rerender(n => n + 1)) : undefined), []);
 
+  const isDone = id => !!(P && P.isDone(id));
   const S = LINES[sel];
-  const k = stopsForTime(S, time);
-  const kOf = L => stopsForTime(L, time);
+  const k = stopsForTime(time);
+  const plan = planRide(S, k, startId);
+  const defaults = LINES.map(L => (L === S ? plan : planRide(L, k)));
+  const litOf = L => {
+    const leg = plan.legs.find(g => g.line === L);
+    return leg ? leg.stops : defaults[L.index].legs[0].stops;
+  };
+  const startStop = plan.stops[0];
+  const n = plan.stops.length;
 
-  const scores = useMemo(() => {
-    const stop = { the: 1, and: 1, for: 1, with: 1, from: 1, this: 1, that: 1, into: 1 };
-    const toks = q.toLowerCase().split(/[\s,;./·]+/).filter(w => w.length > 2 && !stop[w]);
-    return LINES.map(L => {
-      const hay = (L.name + " " + L.stops.map(id => net.byId[id].name).join(" ")).toLowerCase();
-      return toks.reduce((n, w) => n + (hay.indexOf(w) >= 0 ? 1 : 0), 0);
+  const pickLine = li => { setSel(li); setStartId(null); };
+  const pickStop = (li, id) => {
+    setSel(li);
+    setStartId(id === planRide(LINES[li], k).stops[0] ? null : id);
+  };
+
+  // Search: the stop whose own name matches the most words wins.
+  const STOPWORDS = { the: 1, and: 1, for: 1, with: 1, from: 1, this: 1, that: 1, into: 1 };
+  const tokens = v => v.toLowerCase().split(/[\s,;./·]+/).filter(w => w.length > 2 && !STOPWORDS[w]);
+  const hits = (text, toks) => toks.reduce((a, w) => a + (text.toLowerCase().indexOf(w) >= 0 ? 1 : 0), 0);
+  const best = useMemo(() => {
+    const toks = tokens(q);
+    if (!toks.length) return null;
+    let top = null, topN = 0, lines = 0;
+    LINES.forEach((L, li) => {
+      let any = false;
+      L.stops.forEach(id => {
+        const h = hits(net.byId[id].name, toks);
+        if (h > 0) any = true;
+        if (h > topN) { top = { li, id }; topN = h; }
+      });
+      if (any || hits(L.name, toks) > 0) lines += 1;
     });
+    return top ? { ...top, lines } : { lines: 0 };
   }, [q]);
-  const nMatch = scores.filter(s => s > 0).length;
   const onQuery = e => {
     const v = e.target.value;
     setQ(v);
-    const stop = { the: 1, and: 1, for: 1, with: 1, from: 1, this: 1, that: 1, into: 1 };
-    const toks = v.toLowerCase().split(/[\s,;./·]+/).filter(w => w.length > 2 && !stop[w]);
-    let best = -1, bestN = 0;
-    LINES.forEach((L, i) => {
-      const hay = (L.name + " " + L.stops.map(id => net.byId[id].name).join(" ")).toLowerCase();
-      const n = toks.reduce((a, w) => a + (hay.indexOf(w) >= 0 ? 1 : 0), 0);
-      if (n > bestN) { best = i; bestN = n; }
-    });
-    if (best >= 0) setSel(best);
+    const toks = tokens(v);
+    let top = null, topN = 0;
+    LINES.forEach((L, li) => L.stops.forEach(id => {
+      const h = hits(net.byId[id].name, toks);
+      if (h > topN) { top = { li, id }; topN = h; }
+    }));
+    if (top) pickStop(top.li, top.id);
   };
 
-  // the train rides the stretch of the selected line your time covers
+  // the train rides the stretch of the selected line your ticket covers
   const trainRef = useRef(null);
-  const plan = useMemo(() => trainPlan(S, k), [sel, k]);
+  const trainIds = plan.legs[0].stops;
+  const train = useMemo(() => trainPlan(S, trainIds), [sel, trainIds.join("|")]);
   useEffect(() => {
     let raf = 0, dead = false;
     const reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const tick = () => {
       if (dead) return;
       const el = trainRef.current;
-      if (el) el.setAttribute("transform", trainPose(plan, reduce ? 0 : ((performance.now() - plan.born) / 1000) % plan.total));
+      if (el) el.setAttribute("transform", trainPose(train, reduce ? 0 : ((performance.now() - train.born) / 1000) % train.total));
       if (!reduce) raf = requestAnimationFrame(tick);
     };
     tick();
     return () => { dead = true; cancelAnimationFrame(raf); };
-  }, [plan]);
+  }, [train]);
 
-  const start = () => onStartRide && onStartRide(rideTour(S, k));
+  const start = () => onStartRide && onStartRide(rideTour(plan));
 
+  // the panel's stop list: the selected line in riding order (a window of it
+  // for long lines), then the stops after a change of line
+  const pos = {};
+  plan.stops.forEach((id, i) => { pos[id] = i; });
+  let rows = S.stops, before = 0, after = 0;
+  if (rows.length > 8) {
+    const at = Math.max(0, Math.min(S.stops.length - 8, S.stops.indexOf(plan.legs[0].stops[0]) - 1));
+    rows = S.stops.slice(at, at + 8); before = at; after = S.stops.length - at - rows.length;
+  }
+  const doneOn = L => L.stops.filter(isDone).length;
+  const tagOf = id => (id in pos ? (pos[id] === 0 ? "start" : pos[id] * MIN_PER_STOP + " min") : isDone(id) ? "done" : "later");
+  const stopRow = (L, li, id, last, key) => {
+    const inPlan = id in pos, done = isDone(id), next = rows[rows.indexOf(id) + 1];
+    const railOn = inPlan && L === S && next !== undefined && next in pos;
+    const ch = net.changesAt(id).filter(c => c !== L);
+    return (
+      <li key={key}>
+        <div aria-hidden="true" className="metro-rail">
+          <span style={{ background: last ? "transparent" : railOn ? L.color : "#dfe2dd" }} />
+          <i style={{ borderColor: inPlan || done ? L.color : "#b9bec4", background: (done && !inPlan) || id === startStop ? L.color : "#ffffff" }} />
+        </div>
+        <div className="metro-stop">
+          <button type="button" className="metro-stopbtn" onClick={() => pickStop(li, id)}
+                  style={{ fontWeight: id === startStop ? 700 : 600, color: inPlan ? "#14171a" : "#6b7178" }}>
+            {net.byId[id].name}
+          </button>
+          {ch.length > 0 && <span className="metro-change">Change for {listAnd(ch.map(c => c.name))}</span>}
+        </div>
+        <span className="metro-when">{tagOf(id) === "done" ? "✓ done" : tagOf(id)}</span>
+      </li>
+    );
+  };
+
+  const transfer = plan.legs[1];
   const height = net.height;
-  const startId = S.stops[0];
-  const stopsShown = Math.min(S.stops.length, Math.max(k + 2, 5), 8);
 
   return (
     <div className="metro metro-page">
@@ -457,9 +572,11 @@ function MetroMap({ onStartRide }) {
           <label htmlFor="metro-q" className="metro-label-strong">What do you want to learn?</label>
           <input id="metro-q" type="text" autoComplete="off" placeholder="e.g. graph algorithms"
                  value={q} onChange={onQuery} className="metro-input" />
-          {q.trim() && (
+          {best && (
             <span className="metro-note">
-              {nMatch ? `${nMatch} of ${LINES.length} lines match. Showing the best one.` : "No line matches that yet."}
+              {best.id
+                ? <>Best match: <b>{net.byId[best.id].name}</b> on the {LINES[best.li].name} line{best.lines > 1 ? ` (${best.lines} lines match)` : ""}.</>
+                : "No stop matches that yet."}
             </span>
           )}
         </div>
@@ -475,76 +592,82 @@ function MetroMap({ onStartRide }) {
         </div>
 
         <div className="metro-field" style={{ gap: 10 }}>
-          <span className="metro-chip" style={{ background: S.color }}>{S.name} line</span>
-          <ol aria-label="Stops on this line, in riding order" className="metro-stoplist">
-            {S.stops.slice(0, stopsShown).map((id, step) => {
-              const on = step < k, ch = net.changesAt(id);
-              const last = step === stopsShown - 1;
-              return (
-                <li key={id}>
-                  <div aria-hidden="true" className="metro-rail">
-                    <span style={{ background: last ? "transparent" : (step + 1 < k ? S.color : "#dfe2dd") }} />
-                    <i style={{ borderColor: on ? S.color : "#b9bec4" }} />
-                  </div>
-                  <div className="metro-stop">
-                    <span style={{ fontWeight: step === 0 ? 700 : 600, color: on ? "#14171a" : "#6b7178" }}>{net.byId[id].name}</span>
-                    {ch.length > 0 && <span className="metro-change">Change for {listAnd(ch.map(c => c.name))}</span>}
-                  </div>
-                  <span className="metro-when">{on ? (step === 0 ? "start" : step * MIN_PER_STOP + " min") : "later"}</span>
-                </li>
-              );
-            })}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span className="metro-chip" style={{ background: S.color }}>{S.name} line</span>
+            {doneOn(S) > 0 && <span className="metro-note">{doneOn(S)} of {S.stops.length} ridden</span>}
+          </div>
+          {before > 0 && <span className="metro-note">{before} earlier {before === 1 ? "stop" : "stops"}</span>}
+          <ol aria-label={`Stops on the ${S.name} line, in riding order. Choose one to start there.`} className="metro-stoplist">
+            {rows.map((id, i) => stopRow(S, sel, id, i === rows.length - 1 && !transfer, id))}
+            {transfer && (
+              <li className="metro-transfer">
+                <span style={{ background: transfer.line.color }} aria-hidden="true" />
+                Change at {net.byId[transfer.at].name} for the {transfer.line.name} line
+              </li>
+            )}
+            {transfer && transfer.stops.map((id, i) => stopRow(transfer.line, transfer.line.index, id, i === transfer.stops.length - 1, "t" + id))}
           </ol>
           <span className="metro-note">
-            {S.stops.length > stopsShown ? `…and ${S.stops.length - stopsShown} more stops. ` : ""}
+            {after > 0 ? `…and ${after} more ${after === 1 ? "stop" : "stops"}. ` : ""}
             {S.lone ? "This line is not linked to the main network yet. " : ""}
-            {k >= S.stops.length ? "Your ticket covers the whole line." : `Your ticket covers ${k} of ${S.stops.length} stops.`}
+            {plan.again ? "You've ridden this whole line, so this ticket rides it again. " : ""}
+            {`Your ${time}-minute ticket covers ${n} ${n === 1 ? "stop" : "stops"}${transfer ? " on two lines" : ""}`}
+            {n < k ? `; the line ends after ${n * MIN_PER_STOP} minutes.` : "."}
           </span>
+          {plan.explicit && (
+            <button type="button" className="metro-linkbtn" onClick={() => setStartId(null)}>
+              Start from my next stop instead
+            </button>
+          )}
         </div>
 
         <button type="button" className="metro-cta" onClick={start}>
           <TrainGlyph width={34} windows="#d4351c" outline={null} wheels="#ffffff" stripe={null} />
-          Start ride · {k} {k === 1 ? "stop" : "stops"}
+          Start ride · {n} {n === 1 ? "stop" : "stops"}{transfer ? " · 1 change" : ""}
         </button>
       </aside>
 
       <section className="metro-card metro-mapcard" aria-labelledby="metro-title">
         <div className="metro-maphead">
           <h1 id="metro-title"><TrainGlyph width={40} />Topic map</h1>
-          <span>Read it like a metro map: each line is a topic, each stop is one idea (about {MIN_PER_STOP} minutes).</span>
+          <span>Read it like a metro map: each line is a topic, each stop is one idea (about {MIN_PER_STOP} minutes). Click a stop to start there.</span>
         </div>
 
         <div className="metro-mapbox">
           <svg role="img" viewBox={`20 140 1110 ${height}`}
-               aria-label={`Topic map drawn like a metro map over a city. ${LINES.length} topics are coloured lines; ${LINES.filter(L => !L.lone).length} meet at interchanges and ${LINES.filter(L => L.lone).length} are not linked to them yet. The ${S.name} line is selected, and on every line the part your ${time} minutes reaches is in full colour.`}>
+               aria-label={`Topic map drawn like a metro map over a city. ${LINES.length} topics are coloured lines; ${LINES.filter(L => !L.lone).length} meet at interchanges and ${LINES.filter(L => L.lone).length} are not linked to them yet. The ${S.name} line is selected; your ride starts at ${net.byId[startStop].name}. On every line the part your ${time} minutes reaches is in full colour, and stops you have ridden are filled in.`}>
             <CityBackdrop height={height} />
             {LINES.map((L, li) => {
-              const isSel = li === sel, lit = L.order.slice(0, Math.min(kOf(L), L.stations.length));
-              const ss = lit.map(i => mmProject(L.pts, L.cum, L.stations[i].x, L.stations[i].y));
-              const d = mmPath(L.pts), dLit = mmSub(L.pts, L.cum, Math.min(...ss), Math.max(...ss));
+              const isSel = li === sel, ids = litOf(L);
+              const ss = ids.map(id => L.stations.find(s => s.id === id)).filter(Boolean)
+                .map(s => mmProject(L.pts, L.cum, s.x, s.y));
+              const d = mmPath(L.pts), dLit = ss.length ? mmSub(L.pts, L.cum, Math.min(...ss), Math.max(...ss)) : "";
               return (
                 <g key={L.cid}>
                   {isSel && <path d={d} fill="none" stroke="rgba(20,23,26,0.28)" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />}
                   <path d={d} fill="none" stroke="#ffffff" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" />
                   <path d={d} fill="none" stroke={mmMix(L.color, 0.65)} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
                   {dLit && <path d={dLit} fill="none" stroke={L.color} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />}
-                  <path d={d} className="metro-hit" onClick={() => setSel(li)} fill="none" stroke="transparent" strokeWidth="26" strokeLinecap="round" />
+                  <path d={d} className="metro-hit" onClick={() => pickLine(li)} fill="none" stroke="transparent" strokeWidth="26" strokeLinecap="round" />
                 </g>
               );
             })}
             {net.pills.map((p, i) => <rect key={"o" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#14171a" stroke="#14171a" strokeWidth="6" />)}
             {net.pills.map((p, i) => <rect key={"f" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#ffffff" />)}
             {LINES.map((L, li) => {
-              const isSel = li === sel, lit = L.order.slice(0, kOf(L)), faded = mmMix(L.color, 0.65);
+              const isSel = li === sel, lit = litOf(L), faded = mmMix(L.color, 0.65);
               return L.stations.map((s, si) => {
-                const on = lit.indexOf(si) >= 0, change = net.pilled.has(s.id), first = isSel && s.id === startId;
+                const on = lit.indexOf(s.id) >= 0, change = net.pilled.has(s.id), first = s.id === startStop, done = isDone(s.id);
                 const label = L.lone ? (si === 0 ? [L.name] : [""]) : s.label;
                 return (
-                  <g key={s.id} className="metro-hit" onClick={() => setSel(li)}>
+                  <g key={s.id} className="metro-hit" onClick={() => pickStop(li, s.id)}>
                     <circle cx={s.x} cy={s.y} r={first ? 10 : change ? 7.5 : 6.5}
-                            fill={first ? L.color : "#ffffff"}
-                            stroke={first || change ? "#14171a" : on ? L.color : faded}
+                            fill={first || done ? L.color : "#ffffff"}
+                            stroke={first || change ? "#14171a" : on || done ? L.color : faded}
                             strokeWidth={first ? 4 : 3} />
+                    {done && !first && (
+                      <path d={`M${s.x - 3} ${s.y} l2.2 2.4 l4 -4.6`} fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    )}
                     <text className="metro-maplabel" x={s.x + s.dx} y={s.y + s.dy} textAnchor={s.anchor}
                           style={{ fontWeight: isSel ? 700 : 500, fill: isSel ? "#14171a" : L.lone ? "#2b3036" : "#3a3f45" }}>
                       <tspan x={s.x + s.dx}>{label[0]}</tspan>
@@ -562,7 +685,7 @@ function MetroMap({ onStartRide }) {
                 Not linked to the main network yet
               </text>
             )}
-            <g ref={trainRef} transform={trainPose(plan, 0)} aria-hidden="true" style={{ pointerEvents: "none" }}>
+            <g ref={trainRef} transform={trainPose(train, 0)} aria-hidden="true" style={{ pointerEvents: "none" }}>
               <rect x="-19" y="-9" width="38" height="17" rx="7" fill="#ffffff" stroke="#14171a" strokeWidth="2.5" />
               <rect x="-13" y="-5" width="7" height="5" rx="1.5" fill="#14171a" />
               <rect x="-3.5" y="-5" width="7" height="5" rx="1.5" fill="#14171a" />
@@ -579,18 +702,23 @@ function MetroMap({ onStartRide }) {
           <span><svg aria-hidden="true" viewBox="0 0 40 12" width="40" height="12"><path d="M4 6 L36 6" stroke="#d4351c" strokeWidth="8" strokeLinecap="round" /></svg>In your time</span>
           <span><svg aria-hidden="true" viewBox="0 0 40 12" width="40" height="12"><path d="M4 6 L36 6" stroke="#f2b9ae" strokeWidth="8" strokeLinecap="round" /></svg>Later</span>
           <span><svg aria-hidden="true" viewBox="0 0 18 18" width="18" height="18"><circle cx="9" cy="9" r="6" fill="#ffffff" stroke="#d4351c" strokeWidth="3" /></svg>Stop: one idea, about {MIN_PER_STOP} min</span>
+          <span><svg aria-hidden="true" viewBox="0 0 18 18" width="18" height="18"><circle cx="9" cy="9" r="6" fill="#d4351c" stroke="#d4351c" strokeWidth="3" /><path d="M6 9 l2.2 2.4 l4 -4.6" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>Done</span>
           <span><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="8.5" fill={S.color} stroke="#14171a" strokeWidth="3.5" /></svg>Your first stop</span>
           <span><svg aria-hidden="true" viewBox="0 0 44 18" width="44" height="18"><rect x="2" y="2" width="40" height="14" rx="7" fill="#ffffff" stroke="#14171a" strokeWidth="2.5" /></svg>Change lines here</span>
         </div>
 
         <div role="group" aria-label="Lines" className="metro-linegrid">
-          {LINES.map((L, li) => (
-            <button key={L.cid} type="button" aria-pressed={li === sel} onClick={() => setSel(li)}
-                    className={"metro-linebtn" + (li === sel ? " on" : "")}>
-              <span aria-hidden="true" style={{ background: L.color }} />
-              {L.name}
-            </button>
-          ))}
+          {LINES.map((L, li) => {
+            const d = doneOn(L);
+            return (
+              <button key={L.cid} type="button" aria-pressed={li === sel} onClick={() => pickLine(li)}
+                      className={"metro-linebtn" + (li === sel ? " on" : "")}>
+                <span aria-hidden="true" style={{ background: L.color }} />
+                <em>{L.name}</em>
+                {d > 0 && <small>{d}/{L.stops.length}</small>}
+              </button>
+            );
+          })}
         </div>
       </section>
     </div>
@@ -598,4 +726,4 @@ function MetroMap({ onStartRide }) {
 }
 
 window.MetroMap = MetroMap;
-window.BU_METRO = { network: metroNetwork, rideTour, stopsForTime, listAnd, mix: mmMix, TrainGlyph, MIN_PER_STOP };
+window.BU_METRO = { network: metroNetwork, planRide, rideTour, stopsForTime, listAnd, mix: mmMix, TrainGlyph, MIN_PER_STOP };

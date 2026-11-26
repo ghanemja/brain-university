@@ -1,4 +1,4 @@
-/* global React, BU_DATA, BU_METRO, THREE */
+/* global React, BU_DATA, BU_METRO, ARXIVIS, THREE */
 // ─────────────────────────────────────────────────────────────────
 // SCREEN · LEARN — ride stop to stop
 //
@@ -55,6 +55,26 @@ function rideClip(text, max) {
   return (dot > max * 0.5 ? cut.slice(0, dot + 1) : cut.slice(0, cut.lastIndexOf(" ")) + "…").replace(/;$/, ".");
 }
 
+// Papers in the arXivis library that mention a concept, strongest mention first.
+let _papersByConcept = null;
+function papersFor(id) {
+  if (!_papersByConcept) {
+    _papersByConcept = {};
+    ((window.ARXIVIS && window.ARXIVIS.papers) || []).forEach(p => (p.concepts || []).forEach(c => {
+      const key = String(c.id || "").replace(/^wiki:/, "").toLowerCase();
+      if (!key || !p.url) return;
+      (_papersByConcept[key] = _papersByConcept[key] || []).push({ title: p.title, url: p.url, year: p.year, w: c.weight || 0 });
+    }));
+    // a paper can name the same concept twice (e.g. two spellings): keep its strongest mention
+    Object.keys(_papersByConcept).forEach(key => {
+      const seen = new Set();
+      _papersByConcept[key] = _papersByConcept[key].sort((a, b) => b.w - a.w)
+        .filter(p => { const t = p.url + "|" + p.title; if (seen.has(p.url) || seen.has(p.title)) return false; seen.add(p.url); seen.add(p.title); return !!t; });
+    });
+  }
+  return _papersByConcept[String(id).toLowerCase()] || [];
+}
+
 function rideStops(tour) {
   const net = BU_METRO.network();
   return tour.map(s => {
@@ -72,8 +92,10 @@ function rideStops(tour) {
       })
       .filter(t => t && flat(summary).indexOf(flat(t)) < 0)
       .slice(0, 3);
+    const papers = papersFor(s.node);
     return {
       id: s.node, name, summary, ideas,
+      papers: papers.slice(0, 2), paperCount: papers.length,
       color: line ? line.color : "#d4351c",
       lineName: line ? line.name : "",
       changes: net.changesAt(s.node).filter(c => !line || c.cid !== line.cid),
@@ -347,7 +369,7 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
 }
 
 // ─── the screen ──────────────────────────────────────────────────
-function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onMap }) {
+function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onPapers, onMap }) {
   const stops = useMemo(() => rideStops(tour), [tour]);
   const n = stops.length;
   const tourKey = tour.map(s => s.node).join("|");
@@ -447,9 +469,25 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onM
             {onBranch && <button type="button" className="metro-btn ghost" onClick={() => onBranch(cs.id)}>Change lines</button>}
           </div>
         )}
+        {!moving && cs.papers.length > 0 && (
+          <div className="metro-ride-papers">
+            <span>In recent papers</span>
+            {cs.papers.map(p => (
+              <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer">
+                {p.title}{p.year ? ` (${p.year})` : ""}
+              </a>
+            ))}
+            {onPapers && (
+              <button type="button" className="metro-linkbtn" onClick={onPapers}>
+                {cs.paperCount > cs.papers.length ? `${cs.paperCount} papers mention this · open Papers` : "Open Papers"}
+              </button>
+            )}
+          </div>
+        )}
         <div className="metro-ride-foot">
           <span>{moving ? "Arriving…" : last ? "That was your last stop." : `${minsLeft} min left on this ride`}</span>
           <div>
+            {at > 0 && !moving && <button type="button" className="metro-btn ghost" onClick={() => onAdvance(-1)} aria-label="Back to the previous stop">‹ Back</button>}
             {onFullLesson && !moving && <button type="button" className="metro-btn ghost" onClick={onFullLesson}>Full lesson</button>}
             {!last && (
               <button type="button" className="metro-btn primary" disabled={moving} onClick={() => onAdvance(1)}>
