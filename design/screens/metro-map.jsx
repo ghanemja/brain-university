@@ -433,6 +433,69 @@ function CityBackdrop({ height }) {
   );
 }
 
+// ─── the map itself (shared by the Map and Progress screens) ──────────
+// litOf(L) → the stop ids drawn in full colour on line L; sel = the
+// highlighted line's index (-1 for none); children draw on top (the train).
+function MetroSvg({ net, sel = -1, litOf, startStop = null, isDone = () => false, dueIds = new Set(),
+                    onPickLine, onPickStop, ariaLabel, children }) {
+  const LINES = net.lines;
+  return (
+    <svg role="img" viewBox={`20 140 1110 ${net.height}`} aria-label={ariaLabel}>
+      <CityBackdrop height={net.height} />
+      {LINES.map((L, li) => {
+        const isSel = li === sel, ids = litOf(L);
+        const ss = ids.map(id => L.stations.find(s => s.id === id)).filter(Boolean)
+          .map(s => mmProject(L.pts, L.cum, s.x, s.y));
+        const d = mmPath(L.pts), dLit = ss.length ? mmSub(L.pts, L.cum, Math.min(...ss), Math.max(...ss)) : "";
+        return (
+          <g key={L.cid}>
+            {isSel && <path d={d} fill="none" stroke="rgba(20,23,26,0.28)" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />}
+            <path d={d} fill="none" stroke="#ffffff" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={d} fill="none" stroke={mmMix(L.color, 0.65)} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+            {dLit && <path d={dLit} fill="none" stroke={L.color} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />}
+            <path d={d} className="metro-hit" onClick={() => onPickLine && onPickLine(li)} fill="none" stroke="transparent" strokeWidth="26" strokeLinecap="round" />
+          </g>
+        );
+      })}
+      {net.pills.map((p, i) => <rect key={"o" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#14171a" stroke="#14171a" strokeWidth="6" />)}
+      {net.pills.map((p, i) => <rect key={"f" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#ffffff" />)}
+      {LINES.map((L, li) => {
+        const isSel = li === sel, lit = litOf(L), faded = mmMix(L.color, 0.65);
+        return L.stations.map((s, si) => {
+          const on = lit.indexOf(s.id) >= 0, change = net.pilled.has(s.id), first = s.id === startStop, done = isDone(s.id);
+          const label = L.lone ? (si === 0 ? [L.name] : [""]) : s.label;
+          return (
+            <g key={s.id} className="metro-hit" onClick={() => onPickStop && onPickStop(li, s.id)}>
+              {dueIds.has(s.id) && <circle cx={s.x} cy={s.y} r={first ? 14 : 11} fill="none" stroke="#e8a100" strokeWidth="3" />}
+              <circle cx={s.x} cy={s.y} r={first ? 10 : change ? 7.5 : 6.5}
+                      fill={first || done ? L.color : "#ffffff"}
+                      stroke={first || change ? "#14171a" : on || done ? L.color : faded}
+                      strokeWidth={first ? 4 : 3} />
+              {done && !first && (
+                <path d={`M${s.x - 3} ${s.y} l2.2 2.4 l4 -4.6`} fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+              <text className="metro-maplabel" x={s.x + s.dx} y={s.y + s.dy} textAnchor={s.anchor}
+                    style={{ fontWeight: isSel ? 700 : 500, fill: isSel ? "#14171a" : L.lone ? "#2b3036" : "#3a3f45" }}>
+                <tspan x={s.x + s.dx}>{label[0]}</tspan>
+                {label[1] && <tspan x={s.x + s.dx} dy="16">{label[1]}</tspan>}
+              </text>
+            </g>
+          );
+        }).concat(L.lone && L.stops.length > L.stations.length ? [
+          <text key="more" className="metro-maplabel" x={L.pts[1][0] + 14} y={L.pts[1][1] + 5}
+                style={{ fontSize: 13, fill: "#51575e" }}>+{L.stops.length - L.stations.length}</text>,
+        ] : []);
+      })}
+      {LINES.some(L => L.lone) && (
+        <text className="metro-maplabel" x="504" y="655" style={{ fontWeight: 700, fill: "#51575e" }}>
+          Not linked to the main network yet
+        </text>
+      )}
+      {children}
+    </svg>
+  );
+}
+
 function readPref(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch (_) { return fallback; }
 }
@@ -449,12 +512,18 @@ function MetroMap({ onStartRide }) {
     const t = readPref("bu_metro_time", 15);
     return [5, 15, 30].indexOf(t) >= 0 ? t : 15;
   });
+  // Another screen (Progress) can ask the Map to open on a stop: bu_metro_start.
+  const [ask] = useState(() => {
+    const a = readPref("bu_metro_start", null);
+    try { localStorage.removeItem("bu_metro_start"); } catch (_) { /* private mode */ }
+    return a && net.lineOfCluster[a.cid] ? a : null;
+  });
   const [sel, setSel] = useState(() => {
-    const cid = readPref("bu_metro_line", null);
+    const cid = ask ? ask.cid : readPref("bu_metro_line", null);
     const L = cid === null ? null : net.lineOfCluster[cid];
     return L ? L.index : 0;
   });
-  const [startId, setStartId] = useState(null); // a stop the learner chose to start at
+  const [startId, setStartId] = useState(() => (ask ? ask.id : null)); // a stop the learner chose to start at
   const [q, setQ] = useState("");
   const [, rerender] = useState(0);
   useEffect(() => writePref("bu_metro_time", time), [time]);
@@ -577,7 +646,6 @@ function MetroMap({ onStartRide }) {
   };
 
   const transfer = plan.legs[1];
-  const height = net.height;
 
   return (
     <div className="metro metro-page">
@@ -660,58 +728,9 @@ function MetroMap({ onStartRide }) {
         </div>
 
         <div className="metro-mapbox">
-          <svg role="img" viewBox={`20 140 1110 ${height}`}
-               aria-label={`Topic map drawn like a metro map over a city. ${LINES.length} topics are coloured lines; ${LINES.filter(L => !L.lone).length} meet at interchanges and ${LINES.filter(L => L.lone).length} are not linked to them yet. The ${S.name} line is selected; your ride starts at ${net.byId[startStop].name}. On every line the part your ${time} minutes reaches is in full colour, and stops you have ridden are filled in.`}>
-            <CityBackdrop height={height} />
-            {LINES.map((L, li) => {
-              const isSel = li === sel, ids = litOf(L);
-              const ss = ids.map(id => L.stations.find(s => s.id === id)).filter(Boolean)
-                .map(s => mmProject(L.pts, L.cum, s.x, s.y));
-              const d = mmPath(L.pts), dLit = ss.length ? mmSub(L.pts, L.cum, Math.min(...ss), Math.max(...ss)) : "";
-              return (
-                <g key={L.cid}>
-                  {isSel && <path d={d} fill="none" stroke="rgba(20,23,26,0.28)" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" />}
-                  <path d={d} fill="none" stroke="#ffffff" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d={d} fill="none" stroke={mmMix(L.color, 0.65)} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
-                  {dLit && <path d={dLit} fill="none" stroke={L.color} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />}
-                  <path d={d} className="metro-hit" onClick={() => pickLine(li)} fill="none" stroke="transparent" strokeWidth="26" strokeLinecap="round" />
-                </g>
-              );
-            })}
-            {net.pills.map((p, i) => <rect key={"o" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#14171a" stroke="#14171a" strokeWidth="6" />)}
-            {net.pills.map((p, i) => <rect key={"f" + i} x={p.x} y={p.y} width={p.w} height={p.h} rx="9" fill="#ffffff" />)}
-            {LINES.map((L, li) => {
-              const isSel = li === sel, lit = litOf(L), faded = mmMix(L.color, 0.65);
-              return L.stations.map((s, si) => {
-                const on = lit.indexOf(s.id) >= 0, change = net.pilled.has(s.id), first = s.id === startStop, done = isDone(s.id);
-                const label = L.lone ? (si === 0 ? [L.name] : [""]) : s.label;
-                return (
-                  <g key={s.id} className="metro-hit" onClick={() => pickStop(li, s.id)}>
-                    {dueIds.has(s.id) && <circle cx={s.x} cy={s.y} r={first ? 14 : 11} fill="none" stroke="#e8a100" strokeWidth="3" />}
-                    <circle cx={s.x} cy={s.y} r={first ? 10 : change ? 7.5 : 6.5}
-                            fill={first || done ? L.color : "#ffffff"}
-                            stroke={first || change ? "#14171a" : on || done ? L.color : faded}
-                            strokeWidth={first ? 4 : 3} />
-                    {done && !first && (
-                      <path d={`M${s.x - 3} ${s.y} l2.2 2.4 l4 -4.6`} fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    )}
-                    <text className="metro-maplabel" x={s.x + s.dx} y={s.y + s.dy} textAnchor={s.anchor}
-                          style={{ fontWeight: isSel ? 700 : 500, fill: isSel ? "#14171a" : L.lone ? "#2b3036" : "#3a3f45" }}>
-                      <tspan x={s.x + s.dx}>{label[0]}</tspan>
-                      {label[1] && <tspan x={s.x + s.dx} dy="16">{label[1]}</tspan>}
-                    </text>
-                  </g>
-                );
-              }).concat(L.lone && L.stops.length > L.stations.length ? [
-                <text key="more" className="metro-maplabel" x={L.pts[1][0] + 14} y={L.pts[1][1] + 5}
-                      style={{ fontSize: 13, fill: "#51575e" }}>+{L.stops.length - L.stations.length}</text>,
-              ] : []);
-            })}
-            {LINES.some(L => L.lone) && (
-              <text className="metro-maplabel" x="504" y="655" style={{ fontWeight: 700, fill: "#51575e" }}>
-                Not linked to the main network yet
-              </text>
-            )}
+          <MetroSvg net={net} sel={sel} litOf={litOf} startStop={startStop} isDone={isDone} dueIds={dueIds}
+                    onPickLine={pickLine} onPickStop={pickStop}
+                    ariaLabel={`Topic map drawn like a metro map over a city. ${LINES.length} topics are coloured lines; ${LINES.filter(L => !L.lone).length} meet at interchanges and ${LINES.filter(L => L.lone).length} are not linked to them yet. The ${S.name} line is selected; your ride starts at ${net.byId[startStop].name}. On every line the part your ${time} minutes reaches is in full colour, and stops you have ridden are filled in.`}>
             <g ref={trainRef} transform={trainPose(train, 0)} aria-hidden="true" style={{ pointerEvents: "none" }}>
               <rect x="-19" y="-9" width="38" height="17" rx="7" fill="#ffffff" stroke="#14171a" strokeWidth="2.5" />
               <rect x="-13" y="-5" width="7" height="5" rx="1.5" fill="#14171a" />
@@ -721,7 +740,7 @@ function MetroMap({ onStartRide }) {
               <circle cx="-10" cy="11" r="2.6" fill="#14171a" />
               <circle cx="10" cy="11" r="2.6" fill="#14171a" />
             </g>
-          </svg>
+          </MetroSvg>
         </div>
 
         <div className="metro-key">
@@ -754,4 +773,4 @@ function MetroMap({ onStartRide }) {
 }
 
 window.MetroMap = MetroMap;
-window.BU_METRO = { network: metroNetwork, planRide, rideTour, stopsForTime, listAnd, mix: mmMix, TrainGlyph, MIN_PER_STOP };
+window.BU_METRO = { network: metroNetwork, planRide, rideTour, stopsForTime, listAnd, mix: mmMix, TrainGlyph, MetroSvg, readPref, writePref, MIN_PER_STOP };

@@ -431,3 +431,5 @@ function Quiz({ q, picked, checked, setPicked, setChecked }) {
 }
 
 window.Walk = Walk;
+// The lesson page (metro-lesson.jsx) uses the same bespoke-simulation mapping.
+window.lessonExerciseFor = getExerciseForNode;

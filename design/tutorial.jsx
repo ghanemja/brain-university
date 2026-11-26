@@ -41,7 +41,7 @@ const SLIDES = [
     tag: "02 · LEARN",
     title: "Ride stop to stop.",
     body:
-      "Learn plays your route as a train ride. Each platform board shows that stop's idea, and the card has the short version with Next stop. At an interchange you can change lines to a linked topic. Full lesson opens the whole lesson page, with its quiz and an interactive exercise.",
+      "Learn plays your route as a train ride. Each stop is taught in short parts (why it matters, the idea, how it works, the common mistakes, then a recall check), and each part has its own board along the platform: step through the lesson and the train rolls from board to board. Listen reads it aloud. At an interchange you can change lines; Full lesson has everything on one page.",
     highlight: "ride",
     tryIt: "ride",
     cta: "Open Learn",
@@ -66,22 +66,22 @@ const SLIDES = [
   },
   {
     icon: "★",
-    tag: "04 · SUMMIT",
-    title: "Reach the capstone.",
+    tag: "04 · END OF THE LINE",
+    title: "Finish the ride.",
     body:
-      "Finish a trail → Summit. Shows the path you walked across the brain, the concepts you touched, and offers options to start a new trail or open the dashboard.",
+      "The last stop ends at a summary: the route you rode, the minutes and lines it added up to, and when your ratings bring stops back for review. Say how the ride was, in a click and an optional note, and plan the next one.",
     highlight: "summit",
     cta: "Next",
   },
   {
     icon: "▦",
-    tag: "05 · DASHBOARD",
-    title: "Track your manifold + see the RL.",
+    tag: "05 · PROGRESS",
+    title: "See what you've ridden.",
     body:
-      "Every trail journaled. 3D brain w/ amber-highlighted visited concepts. Plain-English RL panel — \"interest in Manifold concepts +34%\", \"memory of older sessions 92% kept / week\". Hover any number to see the math behind it.",
+      "Progress shows your map with every ridden stretch in full colour, how well you know each line, and your rides, so you can resume one or ride it again. Stops due for review get a Review button. It's saved to the server, so it comes back if this browser forgets.",
     highlight: "dashboard",
     tryIt: "dashboard",
-    cta: "Open dashboard",
+    cta: "Open Progress",
   },
   {
     icon: "💡",

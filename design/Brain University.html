@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 <style>
 /* Tweak-driven font-family overrides applied to root */
 html[data-display-font="serif"]   { --f-display: "Fraunces", "Iowan Old Style", Georgia, serif; }
@@ -110,6 +110,8 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script src="arxivis_data.js?v=4"></script>
   <script src="open_problems.js"></script>
   <script src="videos/manifest.js"></script>
+  <!-- A real lesson per stop, lifted from the wiki (scripts/build_lesson_cards.py) -->
+  <script src="lesson_cards.js?v=1"></script>
   <!-- What this learner has ridden: localStorage, synced with the API -->
   <script src="progress.js?v=2"></script>
 
@@ -126,6 +128,9 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script type="text/babel" src="atp-tour.jsx?v=1"></script>
   <script type="text/babel" src="interactive-exercises.jsx"></script>
   <script type="text/babel" src="podcast-player.jsx"></script>
+  <!-- A picture for every stop: animated diagrams computed from the real algorithm -->
+  <script type="text/babel" src="lesson-visuals.jsx?v=1"></script>
+  <script type="text/babel" src="lesson-kit.jsx?v=2"></script>
 
   <!-- Screens -->
   <script type="text/babel" src="screens/trailhead.jsx?v=2"></script>
@@ -138,7 +143,11 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script type="text/babel" src="screens/podcast.jsx?v=2"></script>
   <script type="text/babel" src="screens/courses.jsx?v=1"></script>
   <script type="text/babel" src="screens/metro-map.jsx?v=1"></script>
-  <script type="text/babel" src="screens/metro-ride.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-ride.jsx?v=2"></script>
+  <script type="text/babel" src="screens/metro-progress.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-lesson.jsx?v=2"></script>
+  <script type="text/babel" src="screens/metro-research.jsx?v=1"></script>
+  <script type="text/babel" src="screens/metro-extras.jsx?v=1"></script>
 
   <!-- ATP agent-view screens -->
   <script type="text/babel" src="screens/atp-university.jsx?v=1"></script>
@@ -165,6 +174,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 const SCREENS_HUMAN = [
   { id: "map",       label: "Map",        hint: "M" },
   { id: "ride",      label: "Learn",      hint: "L" },
+  { id: "research",  label: "Research",   hint: "R" },
   { id: "trailhead", label: "Trailhead",  hint: "01" },
   { id: "walk",      label: "The walk",   hint: "02" },
   { id: "branch",    label: "Bridge",     hint: "03" },
@@ -188,22 +198,19 @@ const SCREENS_AGENT = [
 ];
 
 // Human top bar: four places plus a "More" menu for everything else.
+// Research is one page with Papers / Open problems / Ask tabs; the old
+// arxivis / openprob / propose ids (and deep links) open those tabs.
 const NAV_HUMAN = [
   { id: "map",  label: "Map" },
-  { id: "ride", label: "Learn", also: ["walk"] },   // "walk" = the full lesson page
-  { id: "research", label: "Research", items: [
-    { id: "arxivis",  label: "Papers",        note: "arXivis: today's papers, explained" },
-    { id: "openprob", label: "Open problems", note: "Unsolved questions to work on" },
-    { id: "propose",  label: "Propose",       note: "Ask the graph for a research direction" },
-  ] },
+  { id: "ride", label: "Learn", also: ["walk", "summit"] },   // the full lesson page, the end-of-ride summary
+  { id: "research", label: "Research", also: ["arxivis", "openprob", "propose"] },
   { id: "dashboard", label: "Progress" },
   { id: "more", label: "More", items: [
     { id: "explorer",  label: "3D brain",     note: "The whole knowledge graph in 3D" },
     { id: "courses",   label: "Courses",      note: "Robot autonomy and other full courses" },
     { id: "podcast",   label: "Podcast",      note: "Listen to a topic" },
     { id: "trailhead", label: "Trailhead",    note: "The original start screen" },
-    { id: "branch",    label: "Bridge",       note: "How changing lines works" },
-    { id: "summit",    label: "Summit",       note: "Your last ride's summary" },
+    { id: "branch",    label: "Changing lines", note: "Every interchange on the map" },
   ] },
 ];
 
@@ -228,6 +235,8 @@ function App() {
   const [explorerNode, setExplorerNode] = useState(null);
   const [arxivisOpen, setArxivisOpen] = useState(false);
   const [openprobOpen, setOpenprobOpen] = useState(false);
+  const [researchTab, setResearchTab] = useState("papers");   // papers | problems | ask
+  const [researchFocus, setResearchFocus] = useState("");     // a search to open Papers with
   const [learner, setLearner] = useState({ name: "Learner", interest: "" });
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [atpTourOpen, setAtpTourOpen]   = useState(false);
@@ -295,6 +304,26 @@ function App() {
     setScreen("ride");
   }, []);
 
+  // Ride from one stop (Research, lesson links): that stop's line, as far
+  // as the learner's usual ticket goes (bu_metro_time), changing if needed.
+  const rideFrom = useCallback((stopId) => {
+    const M = window.BU_METRO, net = M && M.network();
+    const node = net && net.byId[stopId], L = node && net.lineOfCluster[node.cluster];
+    if (!L) { startTour(stopId); return; }
+    const k = M.stopsForTime(M.readPref("bu_metro_time", 15));
+    startRide(M.rideTour(M.planRide(L, k, stopId)));
+  }, [startRide, startTour]);
+
+  // Papers about a stop: the Research hub's Papers tab, searching for it.
+  const openPapers = useCallback((nodeId) => {
+    const net = window.BU_METRO && window.BU_METRO.network();
+    const name = nodeId && net && net.byId[nodeId] ? net.byId[nodeId].name : String(nodeId || "").replace(/_/g, " ");
+    setResearchFocus(name);
+    setResearchTab("papers");
+    setExplorer(false); setArxivisOpen(false); setOpenprobOpen(false);
+    setScreen("research");
+  }, []);
+
   // Moving on from a stop logs it (BU_PROGRESS → local + POST /walks/{id}/event).
   const stopRef = useRef(stopIdx);
   stopRef.current = stopIdx;
@@ -324,9 +353,10 @@ function App() {
 
   // Visited set for visualizations
   const visited = useMemo(() => {
-    if (!tour) return new Set();
-    return new Set(tour.slice(0, stopIdx + 1).map(s => s.node));
-  }, [tour, stopIdx]);
+    const seen = new Set(window.BU_PROGRESS ? window.BU_PROGRESS.doneSet() : []);
+    if (tour) tour.slice(0, stopIdx + 1).forEach(s => seen.add(s.node));
+    return seen;
+  }, [tour, stopIdx, explorerOpen]);
 
   // Switch Human ◦ Agent view: close every overlay, land on the view's home.
   const switchView = useCallback((v) => {
@@ -345,6 +375,10 @@ function App() {
       setArxivisOpen(false); setOpenprobOpen(false);
       setExplorer(true);
       setExplorerNode(tour?.[stopIdx]?.node || "Reynolds_number");
+    } else if (typeof MetroResearch !== "undefined" && (id === "research" || id === "arxivis" || id === "openprob" || id === "propose")) {
+      setExplorer(false); setArxivisOpen(false); setOpenprobOpen(false);
+      if (id !== "research") setResearchTab(id === "arxivis" ? "papers" : id === "openprob" ? "problems" : "ask");
+      setScreen("research");
     } else if (id === "arxivis") {
       setExplorer(false); setOpenprobOpen(false);
       setArxivisOpen(true);
@@ -352,7 +386,7 @@ function App() {
       setExplorer(false); setArxivisOpen(false);
       setOpenprobOpen(true);
     } else {
-      setArxivisOpen(false); setOpenprobOpen(false);
+      setExplorer(false); setArxivisOpen(false); setOpenprobOpen(false);
       if (id === "walk" && !tour) startTour("Reynolds_number", null, null, "walk");
       else setScreen(id);
     }
@@ -396,7 +430,7 @@ function App() {
       if (head === "explorer" || head === "arxivis" || head === "openprob") {
         // Overlays float above a base screen — make sure the base screen
         // is a human one before goto() opens the overlay.
-        setScreen(s => (AGENT_SCREEN_IDS.has(s) ? "trailhead" : s));
+        setScreen(s => (AGENT_SCREEN_IDS.has(s) ? "map" : s));
       }
       goto(head);
     } else {
@@ -428,6 +462,7 @@ function App() {
       h = explorerOpen ? "explorer"
         : arxivisOpen ? "arxivis"
         : openprobOpen ? "openprob"
+        : screen === "research" ? (researchTab === "papers" ? "arxivis" : researchTab === "problems" ? "openprob" : "propose")
         : screen;
     } else {
       h = (screen === "agents" && atpAgentId)
@@ -438,7 +473,7 @@ function App() {
     if (window.location.hash !== next) {
       try { history.replaceState(null, "", next); } catch (_) {}
     }
-  }, [view, screen, atpAgentId, explorerOpen, arxivisOpen, openprobOpen]);
+  }, [view, screen, atpAgentId, explorerOpen, arxivisOpen, openprobOpen, researchTab]);
 
   return (
     <div className="app-shell">
@@ -543,7 +578,7 @@ function App() {
                      onBranch={handleBranch}
                      onSummit={handleSummit}
                      onFullLesson={() => setScreen("walk")}
-                     onPapers={() => goto("arxivis")}
+                     onPapers={openPapers}
                      onMap={() => setScreen("map")} />
         )}
         {screen === "ride" && !tour && (
@@ -552,7 +587,17 @@ function App() {
         {screen === "trailhead" && (
           <Trailhead learner={learner} onPickStart={startTour} />
         )}
-        {screen === "walk" && tour && (
+        {screen === "walk" && tour && typeof MetroLesson !== "undefined" && (
+          <MetroLesson tour={tour} idx={stopIdx}
+                       onAdvance={advance}
+                       onJumpTo={(i) => setStopIdx(i)}
+                       onRide={() => setScreen("ride")}
+                       onBranch={handleBranch}
+                       onSummit={handleSummit}
+                       onShow3D={() => { setExplorer(true); setExplorerNode(tour[stopIdx].node); }}
+                       onPapers={openPapers} />
+        )}
+        {screen === "walk" && tour && typeof MetroLesson === "undefined" && (
           <Walk tour={tour} idx={stopIdx} layout={t.lessonLayout}
                 onAdvance={advance}
                 onJumpTo={(i) => typeof i === "number" ? setStopIdx(i) : setScreen("map")}
@@ -563,19 +608,39 @@ function App() {
         {screen === "walk" && !tour && (
           <EmptyTour onPick={() => setScreen("map")} />
         )}
-        {screen === "branch" && (
+        {screen === "branch" && typeof MetroInterchanges !== "undefined" && (
+          <MetroInterchanges onRide={rideFrom} onMap={() => setScreen("map")} />
+        )}
+        {screen === "branch" && typeof MetroInterchanges === "undefined" && (
           <BranchStandalone onOpen={() => { setScreen("walk"); if (!tour) startTour("Reynolds_number"); setTimeout(() => setBranch(true), 300); }} />
         )}
         {screen === "summit" && (
-          <Summit tour={tour || BU_DATA.planTour("Reynolds_number")}
-                  onAnotherTrail={() => setScreen("map")}
-                  onDashboard={() => setScreen("dashboard")} />
+          typeof MetroArrival !== "undefined"
+            ? <MetroArrival tour={tour}
+                            onMap={() => setScreen("map")}
+                            onProgress={() => setScreen("dashboard")}
+                            onStartRide={startRide} />
+            : <Summit tour={tour || BU_DATA.planTour("Reynolds_number")}
+                      onAnotherTrail={() => setScreen("map")}
+                      onDashboard={() => setScreen("dashboard")} />
         )}
-        {screen === "dashboard" && (
+        {screen === "dashboard" && typeof MetroProgress !== "undefined" && (
+          <MetroProgress onMap={() => setScreen("map")}
+                         onStartRide={startRide}
+                         onResumeRide={resumeRide}
+                         onShow3D={() => goto("explorer")} />
+        )}
+        {screen === "dashboard" && typeof MetroProgress === "undefined" && (
           <Dashboard learner={learner}
                      onResume={(startNode) => { startTour(startNode || "Reynolds_number"); }}
                      onResumeRide={resumeRide}
                      onNewTrail={() => setScreen("map")} />
+        )}
+        {screen === "research" && typeof MetroResearch !== "undefined" && (
+          <MetroResearch tab={researchTab} focus={researchFocus}
+                         onTab={setResearchTab}
+                         onRide={rideFrom}
+                         onOpen3D={(kind) => (kind === "problems" ? setOpenprobOpen(true) : setArxivisOpen(true))} />
         )}
         {screen === "propose" && (
           <Propose onJumpToNode={(id) => startTour(id)} />
@@ -624,11 +689,19 @@ function App() {
         )}
 
         {/* Branch panel — overlays the walk */}
-        <BranchPanel
-          open={branchOpen}
-          fromNode={tour?.[stopIdx]?.node}
-          onStay={() => setBranch(false)}
-          onFork={handleFork} />
+        {view === "human" && typeof MetroChange !== "undefined" ? (
+          <MetroChange
+            open={branchOpen}
+            fromNode={tour?.[stopIdx]?.node}
+            onStay={() => setBranch(false)}
+            onFork={handleFork} />
+        ) : (
+          <BranchPanel
+            open={branchOpen}
+            fromNode={tour?.[stopIdx]?.node}
+            onStay={() => setBranch(false)}
+            onFork={handleFork} />
+        )}
 
         {/* 3D explorer fullscreen overlay */}
         {explorerOpen && (
@@ -681,13 +754,15 @@ function App() {
       {/* TWEAKS PANEL */}
       <TweaksPanel title="Tweaks">
         <TweakSection label="Theme">
-          <TweakRadio label="Palette" value={t.palette}
-            options={[
-              { value: "night", label: "Night" },
-              { value: "paper", label: "Paper" },
-              { value: "ocean", label: "Ocean" },
-            ]}
-            onChange={(v) => setTweak('palette', v)} />
+          {view === "agent" && (
+            <TweakRadio label="Palette" value={t.palette}
+              options={[
+                { value: "night", label: "Night" },
+                { value: "paper", label: "Paper" },
+                { value: "ocean", label: "Ocean" },
+              ]}
+              onChange={(v) => setTweak('palette', v)} />
+          )}
           <TweakRadio label="Display font" value={t.displayFont}
             options={[
               { value: "grotesk", label: "Grotesk" },
@@ -695,15 +770,6 @@ function App() {
               { value: "mono",    label: "Mono" },
             ]}
             onChange={(v) => setTweak('displayFont', v)} />
-        </TweakSection>
-        <TweakSection label="Lesson view">
-          <TweakRadio label="Layout" value={t.lessonLayout}
-            options={[
-              { value: "postcard",   label: "Postcard" },
-              { value: "split",      label: "Split" },
-              { value: "full-bleed", label: "Spread" },
-            ]}
-            onChange={(v) => setTweak('lessonLayout', v)} />
         </TweakSection>
         <TweakSection label="Visuals">
           <TweakToggle label="Cinematic auto-orbit" value={t.cinematicCamera}

@@ -662,3 +662,6 @@ function Propose({ onJumpToNode }) {
 
 window.Dashboard = Dashboard;
 window.Propose = Propose;
+// Reused by the Research hub's Ask tab (metro-research.jsx).
+window._normalizePropose = _normalizePropose;
+window._cleanSynthesis = _cleanSynthesis;

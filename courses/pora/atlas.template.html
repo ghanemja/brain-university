@@ -178,6 +178,8 @@ const PORA = /*PORA_DATA*/null;
   const laneName = {}; D.layers.forEach(l => laneName[l.id] = l.name);
   const laneVar = id => `var(--lane-${id})`;
   const EMBED = /[?&]embed=bu\b/.test(location.search);
+  // Inside Train of Thought the Atlas stays light, like the rest of the learner app.
+  if (EMBED) document.documentElement.dataset.theme = "light";
   const $ = s => document.querySelector(s);
 
   // depth = longest prerequisite chain

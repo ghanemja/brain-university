@@ -82,6 +82,10 @@ window.BU_PROGRESS = (() => {
       });
     } else if (job.op === "complete") {
       await call("POST", "/walks/" + walkId + "/complete");
+    } else if (job.op === "feedback") {
+      await call("POST", "/feedback", {
+        user_id: user(), target_kind: "walk", target_id: String(walkId), thumb: job.thumb, note: job.note || null,
+      });
     }
   }
   async function flush() {
@@ -269,6 +273,16 @@ window.BU_PROGRESS = (() => {
     return state.cards[node];
   }
   function card(node) { return state.cards[node] || null; }
+
+  // "How was this ride?": +1 / -1 and an optional note, kept on the ride and
+  // sent as POST /feedback (target_kind "walk").
+  function feedback(rideId, thumb, note) {
+    const ride = rideById(rideId);
+    if (!ride) return;
+    ride.feedback = { thumb, note: note || "", at: now() };
+    enqueue({ op: "feedback", ride: ride.id, thumb, note: note || "" });
+    save();
+  }
   // Stops whose review is due, most overdue first.
   function due(at) {
     const t = (at || now()) / 1000;
@@ -295,7 +309,7 @@ window.BU_PROGRESS = (() => {
 
   return {
     isDone, doneSet, markDone, startRide, current, update, leave, finish, resume, streak,
-    rate, card, due,
+    rate, card, due, feedback,
     rides: () => state.rides.slice(),
     cards: () => Object.assign({}, state.cards),
     doneCount: () => Object.keys(state.done).length,
