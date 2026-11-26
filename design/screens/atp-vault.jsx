@@ -7,15 +7,16 @@ const { useState, useMemo, useEffect, useRef } = React;
 // (docs/HARDENING.md Phase 6).
 //
 // WHY HERE: design/api.js (owned by earlier phases) exposes only its
-// finished methods plus live()/mediaUrl() — the jget/jpost/jpostMultipart
-// helpers are closure-private and NOT exported. So this screen adds the
-// knowledge methods itself through local fetch helpers that mirror the
-// api.js idiom byte-for-byte: base from window.BU_API_BASE, bearer from
-// sessionStorage.bu_auth_token, 401 → clear session + reload (the gate
-// re-shows), 403 → error tagged {forbidden:true} carrying the server's
-// VERBATIM `detail` string (e.g. "requires SME role") so the UI can show
-// role errors as sent. The Object.assign is guarded: the moment api.js
-// ships its own knowledgeUpload, this whole block becomes a no-op.
+// finished methods plus live()/mediaUrl()/authFetch() — the jget/jpost/
+// jpostMultipart helpers are closure-private and NOT exported. So this screen adds the
+// knowledge methods itself through local helpers built on api.js's shared
+// BU_API.authFetch: base from window.BU_API_BASE, bearer from the page's
+// silent demo sign-in (BU_AUTH), 401 → one token refresh + retry, then an
+// error tagged {unauthorized:true} (never a page reload), 403 → error tagged
+// {forbidden:true} carrying the server's VERBATIM `detail` string (e.g.
+// "requires SME role") so the UI can show role errors as sent. The
+// Object.assign is guarded: the moment api.js ships its own
+// knowledgeUpload, this whole block becomes a no-op.
 //
 // Endpoint contract (api/knowledge.py — Phase 6 backend):
 //   POST /knowledge/docs                   multipart "file" (md/txt/pdf,
@@ -42,32 +43,27 @@ const { useState, useMemo, useEffect, useRef } = React;
   const base = () => (window.BU_API_BASE || "").replace(/\/+$/, "");
   const live = () => Boolean(base());
 
-  function authHeader() {
+  // Bearer fetch with the shared 401 handling (refresh the demo token once,
+  // retry, then throw {unauthorized:true}). Never reloads: a screen that
+  // reloads on a 401 it triggered itself remounts, re-fires the read, 401s
+  // again — an infinite reload loop (seen live against the deployed backend
+  // when the stored token was stale/absent). Fallback for an api.js that
+  // predates authFetch: plain fetch with the stored token, same tagging.
+  async function authFetch(url, init) {
+    if (window.BU_API.authFetch) return window.BU_API.authFetch(url, init);
+    const headers = { ...((init && init.headers) || {}) };
     try {
       const tok = sessionStorage.getItem("bu_auth_token");
-      return tok ? { "Authorization": `Bearer ${tok}` } : {};
-    } catch (_) { return {}; }
-  }
-
-  // 401 handling forks on WHO asked. User-initiated calls (upload, draft,
-  // sign-off) mirror api.js: clear the session + reload so the gate
-  // re-shows. PASSIVE calls (the on-mount doc-list read) must NOT do that:
-  // a screen that reloads on a 401 it triggered itself remounts, re-fires
-  // the read, 401s again — an infinite reload loop (seen live against the
-  // deployed backend when the stored token is stale/absent). Passive reads
-  // throw a tagged error and the section renders a signed-out state.
-  function handle401(r, opts) {
-    if (r.status !== 401) return r;
-    if (opts && opts.passive) {
-      const e = new Error("401 — not authorized");
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
+    } catch (_) {}
+    const r = await fetch(url, { ...(init || {}), headers });
+    if (r.status === 401) {
+      const e = new Error("401 — not signed in to the backend");
       e.status = 401;
       e.unauthorized = true;
       throw e;
     }
-    try { sessionStorage.removeItem("bu_auth_token"); } catch (_) {}
-    try { sessionStorage.removeItem("bu_auth"); } catch (_) {}
-    if (typeof window !== "undefined") window.location.reload();
-    throw new Error("401 — session expired, re-authenticate");
+    return r;
   }
 
   // Unlike api.js's sync handler this one reads the body: the server's
@@ -90,14 +86,13 @@ const { useState, useMemo, useEffect, useRef } = React;
     throw e;
   }
 
-  async function kget(path, params, opts) {
+  async function kget(path, params) {
     if (!live()) throw new Error("BU_API_BASE not set");
     const url = new URL(base() + path);
     if (params) Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
     });
-    const r = await fetch(url.toString(), { headers: authHeader() });
-    handle401(r, opts);
+    const r = await authFetch(url.toString());
     await handleForbidden(r);
     if (!r.ok) await fail(r, `GET ${path}`);
     return r.json();
@@ -105,12 +100,11 @@ const { useState, useMemo, useEffect, useRef } = React;
 
   async function kpost(path, body) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await fetch(base() + path, {
+    const r = await authFetch(base() + path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeader() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
     });
-    handle401(r);
     await handleForbidden(r);
     if (!r.ok) await fail(r, `POST ${path}`);
     return r.json();
@@ -118,10 +112,7 @@ const { useState, useMemo, useEffect, useRef } = React;
 
   async function kmultipart(path, formData) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await fetch(base() + path, {
-      method: "POST", headers: authHeader(), body: formData,
-    });
-    handle401(r);
+    const r = await authFetch(base() + path, { method: "POST", body: formData });
     await handleForbidden(r);
     if (!r.ok) await fail(r, `POST ${path}`);
     return r.json();
@@ -146,12 +137,12 @@ const { useState, useMemo, useEffect, useRef } = React;
       } catch (e) { return degrade(e); }
     },
 
-    // The org's uploaded docs, latest first → {docs:[…]}. This is the one
-    // PASSIVE (on-mount) call, so it must degrade instead of redirecting:
+    // The org's uploaded docs, latest first → {docs:[…]}. The on-mount
+    // read, so it degrades to a state the section can render:
     //   401     → {unauthorized:true}  (signed-out state, NO reload loop)
     //   404/405 → {unavailable:true}   (backend predates Phase 6 → explainer)
     async knowledgeDocs() {
-      try { return await kget("/knowledge/docs", null, { passive: true }); }
+      try { return await kget("/knowledge/docs"); }
       catch (e) {
         if (e && e.unauthorized) {
           return { ok: false, unauthorized: true, docs: [] };

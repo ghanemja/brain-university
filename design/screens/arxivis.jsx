@@ -875,7 +875,8 @@ function ResearchAssistantPanel({ rigor, composite }) {
 // by config.js at deploy time). Falls back to localhost:8090 for local dev.
 const API_BASE = (typeof window !== "undefined" && window.BU_API_BASE) || "http://localhost:8090";
 
-// All API fetches send the bearer token saved by the login gate.
+// All API fetches send the bearer token from the page's silent demo sign-in
+// (window.BU_AUTH in Brain University.html).
 function authHeaders() {
   let h = { "Content-Type": "application/json" };
   try {

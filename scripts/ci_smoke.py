@@ -21,6 +21,11 @@ through the frontend AND exercises the hardened API paths end-to-end:
        agent-view tabs render non-empty main content → Human view toggle
        renders the topic map → the page's progress sync gets 200 from
        /health and /progress → zero console errors.
+  5. Playwright chromium against a SECOND uvicorn with auth ENABLED that
+     refuses the page's demo credential, starting from a stale token:
+       the page loads exactly once (no 401 reload loop) → auth 401s reach
+       it with CORS headers → one fresh sign-in attempt, not one per 401
+       → the agent tabs still render (demo-data fallback).
 
 Runnable locally and in CI (identical behavior):
 
@@ -33,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -455,10 +461,128 @@ def browser_smoke(api: str, web: str) -> None:
     ok("zero console errors across 7 screens")
 
 
+def auth_enabled_browser_smoke(api: str, web: str) -> None:
+    """The open demo against a backend WITH auth that refuses the page's
+    demo credential, starting from a stale token (an expired session).
+
+    Guards the 401 path end to end. auth_middleware's 401s must reach the
+    page with CORS headers (CORSMiddleware is the outermost layer in
+    api/server.py), and the page must handle them without reloading: one
+    fresh sign-in through window.BU_AUTH.refresh (rate-limited there), then
+    the demo-data fallback. The page used to reload on every 401 to re-show
+    a login screen that no longer exists, so a refused sign-in reloaded it
+    forever; with CORS inside auth, it instead never saw the 401 at all and
+    stayed stuck on the stale token.
+    """
+    from playwright.sync_api import sync_playwright
+
+    from playwright.sync_api import Error as PWError
+    from playwright.sync_api import TimeoutError as PWTimeoutError
+
+    print("Browser smoke, auth enabled + demo credential refused:")
+    loads = 0
+    sign_ins = 0                   # POST /login attempts (BU_AUTH sign-ins)
+    api_401s: list[str] = []       # protected API paths that answered 401
+    blocked: list[str] = []        # API requests the browser failed/blocked
+    page_errors: list[str] = []
+    api_origin = urlsplit(api)[:2]
+
+    def on_load(_page) -> None:
+        nonlocal loads
+        loads += 1
+
+    def on_response(resp) -> None:
+        nonlocal sign_ins
+        url = urlsplit(resp.url)
+        if url[:2] != api_origin:
+            return
+        if resp.request.method == "POST" and url.path == "/login":
+            sign_ins += 1
+        elif resp.status == 401 and url.path not in SILENT_LOGIN_401_PATHS:
+            api_401s.append(url.path)
+
+    def on_failed(req) -> None:
+        url = urlsplit(req.url)
+        if url[:2] == api_origin:
+            blocked.append(f"{req.method} {url.path}: {req.failure}")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        context = browser.new_context()
+        # A token this server never issued, as an expired session would
+        # leave in sessionStorage (seeded once, so a reload would keep it).
+        context.add_init_script(
+            "try { if (!sessionStorage.getItem('ci_seeded')) {"
+            " sessionStorage.setItem('ci_seeded', '1');"
+            " sessionStorage.setItem('bu_auth_token', 'stale.ci.token'); }"
+            " } catch (_) {}")
+        page = context.new_page()
+        page.set_default_timeout(120_000)
+        page.route("**/config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body=f'window.BU_API_BASE = "{api}";\n'))
+        page.on("load", on_load)
+        page.on("response", on_response)
+        page.on("requestfailed", on_failed)
+        page.on("pageerror", lambda e: page_errors.append(str(e)))
+
+        page.goto(f"{web}/{INDEX}")
+        try:
+            page.wait_for_selector('nav.nav button[data-nav="university"]')
+        except PWTimeoutError:
+            print("  … app shell slow (CDN?) — reloading once", file=sys.stderr)
+            page.reload()
+            loads -= 1             # our reload, not the page's
+            page.wait_for_selector('nav.nav button[data-nav="university"]')
+
+        # Shell is up (CDN scripts cached): a tab that can't settle in 30 s
+        # means the page is reloading under us, so say that, not a timeout.
+        page.set_default_timeout(30_000)
+        try:
+            for tab in AGENT_TABS:
+                page.click(f'button[data-nav="{tab}"]')
+                page.wait_for_function(
+                    """(tab) => {
+                        const btn  = document.querySelector(`button[data-nav="${tab}"]`);
+                        const main = document.querySelector('main');
+                        return btn && btn.classList.contains('active') &&
+                               main && main.innerText.trim().length > 80;
+                    }""",
+                    arg=tab)
+            page.wait_for_timeout(4000)  # room for a reload loop to show itself
+        except PWError as e:
+            browser.close()
+            die(f"agent tabs never settled ({e.__class__.__name__}); the page "
+                f"loaded {loads}× — a 401 reload loop?")
+        token = page.evaluate("sessionStorage.getItem('bu_auth_token')")
+        browser.close()
+
+    if page_errors:
+        die(f"uncaught page errors: {page_errors[:3]}")
+    if loads != 1:
+        die(f"page loaded {loads}× — a 401 reload loop (want exactly 1)")
+    ok("page loaded once: no reload on 401")
+    if blocked or not api_401s:
+        die(f"auth 401s must reach the page with CORS headers; "
+            f"401s seen: {sorted(set(api_401s))}, blocked: {blocked[:4]}")
+    ok(f"auth 401s reach the page with CORS headers "
+       f"({len(api_401s)} on {', '.join(sorted(set(api_401s)))})")
+    if not 1 <= sign_ins <= 2:
+        die(f"{sign_ins} sign-in attempts for {len(api_401s)} 401s — the "
+            "page must retry the demo sign-in once, then back off "
+            "(window.BU_AUTH.refresh)")
+    if token:
+        die(f"stale token still in sessionStorage after a 401: {token!r}")
+    ok(f"stale token dropped, {sign_ins} sign-in attempt(s), agent tabs "
+       "rendered on demo data")
+
+
 def main() -> int:
     api_port, web_port = free_port(), free_port()
     api = f"http://127.0.0.1:{api_port}"
     web = f"http://127.0.0.1:{web_port}"
+    auth_api_port = free_port()
+    auth_api = f"http://127.0.0.1:{auth_api_port}"
 
     procs: list[subprocess.Popen] = []
     with tempfile.TemporaryDirectory(prefix="bu-ci-smoke-") as tmp:
@@ -477,22 +601,37 @@ def main() -> int:
             "DATA_ENCRYPTION_KEY": "ci-smoke-data-key-0123456789abcdef",
             "EVIDENCE_SIGNING_KEY": "ci-smoke-evidence-key-0123456789ab",
         })
+        # Second backend for pass 5: auth ENABLED with a password the page's
+        # demo credential doesn't match (both random per run).
+        auth_env = {k: v for k, v in env.items() if k != "BU_AUTH_DISABLED"}
+        auth_env.update({
+            "DATABASE_URL": f"sqlite:///{tmp}/ci-auth.db",
+            "BU_AUTH_PASSWORD": secrets.token_urlsafe(24),
+            "BU_AUTH_SECRET": secrets.token_urlsafe(48),
+        })
         try:
             procs.append(subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "api.server:app",
                  "--host", "127.0.0.1", "--port", str(api_port)],
                 cwd=ROOT, env=env))
             procs.append(subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "api.server:app",
+                 "--host", "127.0.0.1", "--port", str(auth_api_port),
+                 "--log-level", "warning"],
+                cwd=ROOT, env=auth_env))
+            procs.append(subprocess.Popen(
                 [sys.executable, "-m", "http.server", str(web_port),
                  "--bind", "127.0.0.1", "--directory", str(DESIGN_DIR)],
                 cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
 
             wait_for(f"{api}/health", 90, "uvicorn api.server:app")
+            wait_for(f"{auth_api}/health", 90, "uvicorn api.server:app (auth on)")
             wait_for(f"{web}/{INDEX}", 30, "http.server design/")
-            print(f"servers up: api={api} web={web}")
+            print(f"servers up: api={api} auth-api={auth_api} web={web}")
 
             api_smoke(api)
             browser_smoke(api, web)
+            auth_enabled_browser_smoke(auth_api, web)
         finally:
             for p in procs:
                 p.terminate()

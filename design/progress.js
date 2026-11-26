@@ -42,13 +42,22 @@ window.BU_PROGRESS = (() => {
   const user = () => window.BU_USER_ID || "anon";
   const token = () => { try { return sessionStorage.getItem("bu_auth_token"); } catch (_) { return null; } };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  // Our own fetch: unlike BU_API's, a 401 here never reloads the page; the
-  // call simply waits in the outbox for the next try.
+  // Our own fetch (progress.js loads before api.js). A 401 asks the page's
+  // sign-in (window.BU_AUTH) for a fresh token and retries once; if that
+  // fails too, the call simply waits in the outbox for the next try.
   async function call(method, path, body) {
-    const headers = { "Content-Type": "application/json" };
+    const send = t => {
+      const headers = { "Content-Type": "application/json" };
+      if (t) headers.Authorization = "Bearer " + t;
+      return fetch(base() + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    };
     const t = token();
-    if (t) headers.Authorization = "Bearer " + t;
-    const r = await fetch(base() + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    let r = await send(t);
+    const auth = window.BU_AUTH;
+    if (r.status === 401 && auth && auth.refresh) {
+      const fresh = await auth.refresh(t);
+      if (fresh && fresh !== t) r = await send(fresh);
+    }
     if (!r.ok) { const e = new Error(method + " " + path + " → " + r.status); e.status = r.status; throw e; }
     return r.json();
   }
@@ -159,8 +168,10 @@ window.BU_PROGRESS = (() => {
     if (connecting || !base() || !window.fetch) return;
     connecting = true;
     try {
-      // The app shell mints a demo token at load; give it a moment to land.
-      for (let i = 0; i < 40 && !token(); i++) await sleep(250);
+      // The page signs in to the demo account at load (window.BU_AUTH);
+      // wait for that, up to 10 s, so the first calls carry the token.
+      const auth = window.BU_AUTH;
+      if (auth && auth.ready) { try { await Promise.race([auth.ready, sleep(10000)]); } catch (_) { /* go without */ } }
       try { await call("GET", "/health"); online = true; } catch (_) { online = false; retryLater(); return; }
       try { hydrate(await call("GET", "/progress?user_id=" + encodeURIComponent(user()))); }
       catch (e) { if (e.status !== 404) { online = false; retryLater(); return; } } // 404: an older API without /progress

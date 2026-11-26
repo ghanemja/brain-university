@@ -58,12 +58,8 @@ _cors = os.environ.get("CORS_ORIGINS", "*")
 _origins = ["*"] if _cors.strip() == "*" else [o.strip() for o in _cors.split(",") if o.strip()]
 
 app = FastAPI(title="Brain University", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORSMiddleware is registered LAST (after auth_middleware, below) so it is
+# the OUTERMOST layer: see the note there.
 
 # ── Tenant access audit (Phase 2 — docs/TENANCY.md §4 layer 4) ────────────
 # Starlette runs the LAST-registered http middleware FIRST, so registering
@@ -114,7 +110,7 @@ async def access_log_middleware(request: Request, call_next):
 # ── Ops middleware (Phase 5 — api/ops.py: rate limit + metrics + logs) ────
 # Registered AFTER access_log_middleware and BEFORE auth_middleware, so the
 # runtime order (last-registered runs first) is:
-#     auth → ops → tenant-access-log → CORS → routes
+#     CORS → auth → ops → tenant-access-log → routes
 # i.e. the token-bucket key can include the verified token subject, 401s
 # never reach the limiter, and a 429 short-circuits BEFORE the tenant access
 # log (a flood can't amplify into per-request DB writes). Env knobs:
@@ -127,6 +123,18 @@ app.middleware("http")(_ops.ops_middleware)
 # BU_AUTH_USER / BU_AUTH_PASSWORD / BU_AUTH_SECRET. See api/auth.py.
 from api.auth import auth_middleware, mint_token, check_password
 app.middleware("http")(auth_middleware)
+
+# CORS outermost, so EVERY response carries the CORS headers, including the
+# 401s auth_middleware and the 429s ops_middleware return without calling the
+# inner layers. With CORS inside auth, a cross-origin page (the Netlify
+# frontend → this API) saw those as opaque network errors: it could not tell
+# "token expired, sign in again" from "server down", so it never recovered.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # /metrics is on the auth allowlist by default: Prometheus scrapers don't
 # hold bearers and the exposition carries no tenant payload (aggregate

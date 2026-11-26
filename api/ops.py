@@ -75,7 +75,7 @@ Three concerns, one middleware (`ops_middleware`) plus one renderer
 Wiring (api/server.py): `app.middleware("http")(ops_middleware)` registered
 BETWEEN the access-log middleware and auth_middleware. Starlette runs the
 last-registered http middleware first, so the runtime order is
-auth → ops → tenant-access-log → CORS → routes: identity is available for
+CORS → auth → ops → tenant-access-log → routes: identity is available for
 the bucket key, and a 429 short-circuits BEFORE the tenant access log, so a
 flood can't amplify into per-request DB writes.
 """
@@ -454,7 +454,8 @@ async def ops_middleware(request: Request, call_next):
     Runs INSIDE auth (api/server.py registration order), so
     request.state.user/org_id are set for authenticated requests and 401s
     never reach us. A 429 returns straight from here — inner layers (tenant
-    access log, CORS, routes) never run for rate-limited requests.
+    access log, routes) never run for rate-limited requests; CORS is outside
+    us, so the 429 still carries CORS headers.
     """
     start = time.perf_counter()
     method = request.method
