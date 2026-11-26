@@ -3,7 +3,8 @@
 // SCREEN · LESSON PAGE — the full lesson for a stop (Learn → Full lesson)
 //
 // Everything the ride teaches in beats, on one page and at full length:
-// why it matters, the idea and its key equations, how it works, an example,
+// why it matters, the idea and its key equations, an animated diagram (See
+// it), how it works, an example,
 // where it's used, the common mistakes, a hands-on simulation where one
 // exists, a quick check that feeds spaced repetition, and further reading.
 // Content and rendering come from lesson-kit.jsx (BU_LESSON). The side
@@ -109,6 +110,13 @@ function MetroLesson({ tour, idx, onAdvance, onJumpTo, onRide, onBranch, onSummi
             <h2 id="lesson-idea" className="metro-h2">The idea</h2>
             <BeatBody kit={kit} beat="idea" />
           </section>
+
+          {has("see") && (
+            <section className="metro-lesson-sec" aria-labelledby="lesson-see">
+              <h2 id="lesson-see" className="metro-h2">See it</h2>
+              <BeatBody kit={kit} beat="see" />
+            </section>
+          )}
 
           {has("how") && (
             <section className="metro-lesson-sec" aria-labelledby="lesson-how">

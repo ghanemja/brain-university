@@ -4,7 +4,8 @@
 //
 // A daytime train ride along your tour: a raised track through a quiet
 // town, one station per stop. A stop is taught in beats (why it matters →
-// the idea → how it works → watch out → check yourself, from lesson-kit.jsx),
+// the idea → see it → how it works → watch out → check yourself, from
+// lesson-kit.jsx; "see it" is an animated diagram, also drawn on its board),
 // and each beat has its own board along the platform: stepping through the
 // lesson rolls the train from board to board, so the lesson is somewhere
 // you move through, not a card over a backdrop. The card carries the beat
@@ -241,6 +242,9 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
     st.kit.beats.forEach((beat, b) => {
       const ib = idxAt(STOP[k] + BEAT_STEP * b + 8), grp = new THREE.Group();
       grp.position.copy(P[ib]); grp.lookAt(P[ib].clone().add(T[ib])); scene.add(grp);
+      // the "See it" board shows the diagram's last frame (painted once the image is in)
+      const vis = beat.key === "see" && st.kit.visual && window.BU_VISUALS ? st.kit.visual : null;
+      const img = vis ? new Image() : null;
       const board = signMesh(BOARD_W, BOARD_H, (g, w, h) => {
         g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
         const band = Math.round(h * 0.24), pad = 34;
@@ -254,6 +258,14 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
         g.textAlign = "right"; fit(g, st.name, 500, 26, w - pad * 2 - 90 - titleW, 16);
         g.fillText(st.name, w - pad, band / 2 + 2);
         g.textAlign = "left"; g.textBaseline = "alphabetic"; g.fillStyle = "#14171a";
+        if (vis) {
+          const ih = h - band - 30, iw = Math.round(ih * BU_VISUALS.VW / BU_VISUALS.VH), ix = w - pad - iw + 10;
+          if (img.complete && img.naturalWidth) g.drawImage(img, ix, band + 12, iw, ih);
+          g.font = "600 33px " + RIDE_FONT;
+          wrapLines(g, vis.title, ix - pad - 16).slice(0, 4).forEach((ln, n) => g.fillText(ln, pad, band + 62 + n * 43));
+          g.strokeStyle = "#14171a"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
+          return;
+        }
         let y = band + 62;
         const lines = [];
         beat.board.forEach((t, li) => { g.font = (li === 0 ? "600 " : "500 ") + "33px " + RIDE_FONT; wrapLines(g, t, w - pad * 2).forEach(ln => lines.push([ln, li === 0])); });
@@ -263,6 +275,11 @@ function buildRideScene(THREE, wrap, canvas, STOPS, startAt, hooks) {
         });
         g.strokeStyle = "#14171a"; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10);
       });
+      if (img) {
+        const o = signs[signs.length - 1];
+        img.onload = () => { if (!dead) paintSign(o); };
+        img.src = BU_VISUALS.dataUrlFor(vis, vis.frames.length - 1, st.color);
+      }
       board.position.set(-6.6, 2.55, 0); board.rotation.y = Math.PI / 2 + 0.5; grp.add(board);
       [-1, 1].forEach(e => { // legs
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6), postMat);

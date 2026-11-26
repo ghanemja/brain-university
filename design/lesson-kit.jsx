@@ -5,7 +5,8 @@
 // A stop's lesson comes from window.BU_LESSON_CARDS (scripts/build_lesson_cards.py,
 // lifted from the wiki pages) with BU_DATA.LESSONS as the fallback. The kit
 // turns it into beats, the order a stop is taught in:
-//   why → idea → how → traps → check
+//   why → idea → see → how → traps → check
+// ("see" is the stop's animated diagram from lesson-visuals.jsx, BU_VISUALS)
 // and renders their content: Markdown (nested lists, bold, code, [[links]])
 // and maths ($…$ / $$…$$) typeset by a small TeX renderer: fractions, roots,
 // sub/superscripts, accents, \text, \mathbb and the usual symbols. React
@@ -240,7 +241,7 @@ function clipText(text, max) {
 const firstSentences = (md, max) => clipText(mdPlain(md), max);
 
 // ─── a stop's lesson, as beats ─────────────────────────────────────
-const BEAT_TITLES = { why: "Why it matters", idea: "The idea", how: "How it works", ideas: "Key ideas", traps: "Watch out", check: "Check yourself" };
+const BEAT_TITLES = { why: "Why it matters", idea: "The idea", see: "See it", how: "How it works", ideas: "Key ideas", traps: "Watch out", check: "Check yourself" };
 
 function lessonKit(nodeId) {
   const name = kitName(nodeId);
@@ -255,13 +256,22 @@ function lessonKit(nodeId) {
   const keys = [];
   if (card && card.why) keys.push("why");
   keys.push("idea");
+  const visual = window.BU_VISUALS ? BU_VISUALS.sceneFor(nodeId) : null;
+  if (visual) keys.push("see");
   if (card && (card.how || card.example)) keys.push("how");
   else if (!card && ideas.length) keys.push("ideas");
   if (card && card.pitfalls) keys.push("traps");
   keys.push("check");
-  const kit = { id: nodeId, name, lesson, card, idea, ideas, beats: keys.map(key => ({ key, title: BEAT_TITLES[key] })) };
+  const kit = { id: nodeId, name, lesson, card, idea, ideas, visual, color: kitColor(nodeId), beats: keys.map(key => ({ key, title: BEAT_TITLES[key] })) };
   kit.beats.forEach(b => { b.board = boardLines(kit, b.key); b.speech = beatSpeech(kit, b.key); });
   return kit;
+}
+
+// The stop's line colour (diagrams draw in it).
+function kitColor(nodeId) {
+  if (!window.BU_METRO) return "#d4351c";
+  const net = BU_METRO.network(), n = net.byId[nodeId], L = n && net.lineOfCluster[n.cluster];
+  return L ? L.color : "#d4351c";
 }
 
 // The few lines a platform board carries for a beat.
@@ -273,6 +283,7 @@ function boardLines(kit, key) {
     if (c.equations && c.equations[0]) lines.push(clipText(texPlain(c.equations[0].tex), 60));
     return lines;
   }
+  if (key === "see") return [kit.visual.title];
   if (key === "how") return (c.how || []).concat(c.example ? [c.example] : []).filter(b => b.h).slice(0, 3).map(b => "•  " + b.h);
   if (key === "ideas") return kit.ideas.slice(0, 3).map(k => "•  " + clipText(mdPlain(k.h || k.b), 60));
   if (key === "traps") return c.pitfalls.slice(0, 3).map(p => "✕  " + clipText(mdPlain(p.h), 60));
@@ -283,6 +294,7 @@ function beatSpeech(kit, key) {
   const c = kit.card || {};
   if (key === "why") return mdPlain(c.why.md);
   if (key === "idea") return mdPlain(kit.idea);
+  if (key === "see") return kit.visual.title + ". " + kit.visual.frames.map(f => f.say).join(" ");
   if (key === "how") return (c.how || []).map(b => (b.h ? b.h + ". " : "") + mdPlain(b.md)).join(" ");
   if (key === "ideas") return kit.ideas.map(k => mdPlain([k.h, k.b].filter(Boolean).join(": "))).join(". ");
   if (key === "traps") return "Watch out. " + c.pitfalls.map(p => mdPlain(p.h) + ". " + p.points.map(mdPlain).join(". ")).join(". ");
@@ -364,6 +376,15 @@ function BeatBody({ kit, beat, compact = false }) {
         <Md src={kit.idea} />
         {c.equations && <Equations list={compact ? c.equations.slice(0, 1) : c.equations} />}
         {!c.why && c.uses && <><h4 className="metro-beat-sub">Where it's used</h4><Uses list={c.uses} max={compact ? 3 : 4} /></>}
+      </>
+    );
+  }
+  if (beat === "see") {
+    const { Visual } = window.BU_VISUALS;
+    return (
+      <>
+        <h3 className="metro-beat-h">{kit.visual.title}</h3>
+        <Visual scene={kit.visual} accent={kit.color} compact={compact} />
       </>
     );
   }

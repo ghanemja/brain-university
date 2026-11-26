@@ -1259,3 +1259,30 @@ html[data-view="human"] .t-cap { font-size: 13px; }
 html[data-view="human"] { --overlay-top: 56px; }
 html[data-view="human"] .topbar { z-index: 120; }
 html[data-view="human"] .metro-drawer-wrap { top: var(--overlay-top, 0px); }
+
+/* "See it": a stop's animated diagram (lesson-visuals.jsx) */
+.metro-visual { margin: 4px 0 0; max-width: 720px; border: 2px solid var(--m-rule); border-radius: 8px; background: #ffffff; overflow: hidden; }
+.metro-visual-fig { display: block; line-height: 0; padding: 8px 8px 0; }
+.metro-visual-fig svg { width: 100%; height: auto; display: block; }
+.metro-visual figcaption { border-top: 2px solid var(--m-rule); padding: 10px 12px 10px; display: flex; flex-direction: column; gap: 8px; }
+.metro-visual figcaption p { margin: 0; font-size: 16px; line-height: 1.5; min-height: 3em; }
+.metro-visual-ctl { display: flex; align-items: center; gap: 6px; }
+.metro-visual-ctl button {
+  width: 34px; height: 34px; border-radius: 999px; border: 2px solid var(--m-ink); background: #ffffff; color: var(--m-ink);
+  font: inherit; font-size: 17px; font-weight: 700; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.metro-visual-ctl button.play { background: var(--m-ink); color: #ffffff; font-size: 13px; }
+.metro-visual-ctl button:disabled { border-color: var(--m-rule); color: #b9bec4; cursor: default; }
+.metro-visual-ctl button:focus-visible { outline: 3px solid #f2c200; outline-offset: 1px; }
+.metro-visual-dots { display: flex; gap: 5px; margin-left: 6px; flex: 1 1 auto; flex-wrap: wrap; }
+.metro-visual-dots i { width: 8px; height: 8px; border-radius: 999px; background: var(--m-rule); }
+.metro-visual-dots i.done { background: #9aa0a6; }
+.metro-visual-dots i.on { background: var(--m-ink); width: 20px; }
+.metro-visual.compact .metro-visual-fig { padding: 4px 4px 0; }
+.metro-visual.compact figcaption { padding: 8px 10px; }
+.metro-visual.compact figcaption p { font-size: 15px; min-height: 4.5em; }
+@media (prefers-reduced-motion: reduce) { .metro-visual * { transition: none !important; } }
+.metro-visual.compact { max-width: none; }
+.metro-visual.compact .metro-visual-fig svg { max-height: 230px; }
+.metro-lesson .metro-visual { max-width: 640px; }
+@media (max-width: 640px) { .metro-visual.compact .metro-visual-fig svg { max-height: 170px; } }
