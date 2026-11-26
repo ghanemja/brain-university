@@ -50,7 +50,7 @@ function Trailhead({ onPickStart, learner }) {
         maxWidth: 720,
       }}>
         <div className="t-tag" style={{ color: "var(--c-ink-muted)", marginBottom: 8 }}>
-          BRAIN UNIVERSITY · TRAILHEAD
+          TRAIN OF THOUGHT · TRAILHEAD
         </div>
         <h1 className="t-display" style={{
           margin: 0,

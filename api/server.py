@@ -21,6 +21,7 @@ Endpoints:
   POST /sr/review                                — body: {user_id, node, quality}
   GET  /sr/due?user_id=X                         — due flashcards
   GET  /heatmap?user_id=X                        — per-cluster mastery
+  GET  /progress?user_id=X                       — stops visited, walks, SR cards
   POST /feedback                                 — body: {target_kind, target_id, thumb}
   POST /propose                                  — body: {user_id, text}
   POST /voice                                    — multipart: audio file → transcript
@@ -638,6 +639,24 @@ def sr_review(body: SRReviewBody):
 def sr_due(user_id: str, limit: int = 10):
     from agents.spaced_repetition import due_cards
     return {"cards": due_cards(user_id, limit=limit)}
+
+
+# ── Learner progress (read back) ───────────────────────────────────────────
+
+@app.get("/progress")
+def progress_endpoint(user_id: str):
+    """Everything a learner has done, so the UI can restore it on load.
+
+    The walk endpoints and /sr/review write it; this reads it back:
+    stops visited (from walk events), recent walks, and every
+    spaced-repetition card (due or not).
+    """
+    from agents.persistence import all_sr_cards, user_walks, visited_nodes
+    return {
+        "visited": visited_nodes(user_id),
+        "walks": user_walks(user_id, limit=50),
+        "cards": all_sr_cards(user_id),
+    }
 
 
 # ── Heatmap / feedback / propose ──────────────────────────────────────────

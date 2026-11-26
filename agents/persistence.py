@@ -191,6 +191,23 @@ def user_walks(user_id: str, limit: int = 50) -> list[dict]:
     ]
 
 
+def visited_nodes(user_id: str) -> list[dict]:
+    """Every stop a learner has logged a walk event at, oldest first.
+
+    One row per node: first/last visit time, visit count and best quiz (or
+    self-rating) quality — what the UI needs to restore "stops ridden".
+    """
+    return db.query(
+        """SELECT node, MIN(ts) AS first_ts, MAX(ts) AS last_ts,
+                  COUNT(*) AS n_visits, MAX(quiz_quality) AS best_quality
+             FROM walk_events
+            WHERE user_id = :user_id AND node IS NOT NULL
+         GROUP BY node
+         ORDER BY first_ts""",
+        {"user_id": user_id},
+    )
+
+
 # ── Spaced-repetition cards ────────────────────────────────────────────────
 
 def upsert_sr_card(

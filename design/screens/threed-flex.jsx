@@ -74,7 +74,7 @@ function ThreeDFlex({ initialNode, visited, onClose, onPickNode }) {
             border: "1px solid var(--c-line)",
             fontFamily: "var(--f-mono)", fontSize: 11,
             color: "var(--c-ink-muted)", letterSpacing: "0.08em", textTransform: "uppercase",
-          }}>BRAIN UNIVERSITY · 3D EXPLORER</div>
+          }}>TRAIN OF THOUGHT · 3D EXPLORER</div>
         </div>
 
         {/* Search */}

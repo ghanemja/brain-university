@@ -10,14 +10,15 @@ through the frontend AND exercises the hardened API paths end-to-end:
   2. python -m http.server design/   — the zero-build frontend, exactly as
                                        published (in-browser Babel; the CI
                                        run IS the dev-mode regression test)
-  3. API smoke (urllib, no browser):
+  3. API smoke (urllib, no browser) — also a learner ride logged through
+     the walk + spaced-repetition endpoints and read back via /progress:
        login → dry-run exam e2e (POST /atp/exams/run → poll /jobs/{id} →
        award) → evidence + chain verify → license lifecycle
        (issue → gated /experts chat → revoke → 403)
   4. Playwright chromium:
        login gate (admin/password) → all 6 agent-view tabs render
        non-empty main content → zero console errors → Human view toggle
-       renders the trailhead.
+       renders the topic map.
 
 Runnable locally and in CI (identical behavior):
 
@@ -205,6 +206,8 @@ def api_smoke(api: str) -> None:
         die(f"revoked key must 403 on the very next call, got {status} {body}")
     ok("revoked license → 403 on the next chat call (forged key → 401)")
 
+    learner_progress_smoke(api, auth)
+
     # ── Phase 6: report-card PDF + knowledge ingestion → SME sign-off → exam ──
     pdf_req = urllib.request.Request(f"{api}/atp/agents/atlas-ops/report.pdf",
                                      headers=auth)
@@ -270,6 +273,51 @@ def api_smoke(api: str) -> None:
 
 
 # ── Browser smoke ────────────────────────────────────────────────────────────
+
+def learner_progress_smoke(api: str, auth: dict) -> None:
+    """A ride as the Learn screen logs it, read back the way the Map restores it."""
+    user = f"ci-learner-{int(time.time())}"
+    status, body = request("POST", f"{api}/walks/start",
+                           {"user_id": user, "start_node": "spanning_tree",
+                            "planned": ["spanning_tree", "Minimum_Spanning_Tree_MST"]},
+                           auth)
+    walk_id = body.get("walk_id")
+    if status != 200 or not walk_id:
+        die(f"POST /walks/start → {status} {body}")
+    for i, (node, quality) in enumerate([("spanning_tree", 5),
+                                         ("Minimum_Spanning_Tree_MST", None)]):
+        status, body = request("POST", f"{api}/walks/{walk_id}/event",
+                               {"user_id": user, "node": node, "step_idx": i,
+                                "lesson_mode": "ride", "quiz_quality": quality,
+                                "duration_s": 30.0}, auth)
+        if status != 200:
+            die(f"POST /walks/{walk_id}/event → {status} {body}")
+    status, body = request("POST", f"{api}/walks/{walk_id}/complete", None, auth)
+    if status != 200:
+        die(f"POST /walks/{walk_id}/complete → {status} {body}")
+    status, body = request("POST", f"{api}/sr/review",
+                           {"user_id": user, "node": "spanning_tree", "quality": 2},
+                           auth)
+    if status != 200 or not body.get("due_ts"):
+        die(f"POST /sr/review → {status} {body}")
+    ok("ride logged: walk start → 2 stop events → complete, one review scheduled")
+
+    status, body = request("GET", f"{api}/progress?user_id={user}", headers=auth)
+    if status != 200:
+        die(f"GET /progress → {status} {body}")
+    visited = {v["node"]: v for v in body.get("visited", [])}
+    if set(visited) != {"spanning_tree", "Minimum_Spanning_Tree_MST"}:
+        die(f"/progress visited = {sorted(visited)}")
+    if visited["spanning_tree"]["best_quality"] != 5:
+        die(f"/progress best_quality = {visited['spanning_tree']}")
+    walks = body.get("walks", [])
+    if not walks or walks[0]["walk_id"] != walk_id or not walks[0]["completed"]:
+        die(f"/progress walks = {walks}")
+    cards = body.get("cards", [])
+    if [c["node"] for c in cards] != ["spanning_tree"] or cards[0]["last_quality"] != 2:
+        die(f"/progress cards = {cards}")
+    ok("GET /progress reads the ride back (2 stops, completed walk, 1 card)")
+
 
 def browser_smoke(api: str, web: str) -> None:
     from playwright.sync_api import sync_playwright
@@ -341,16 +389,17 @@ def browser_smoke(api: str, web: str) -> None:
                 "document.querySelector('main').innerText.trim().length")
             ok(f"agent tab '{tab}' rendered non-empty main ({chars} chars)")
 
-        # Human ◦ Agent toggle → trailhead
+        # Human ◦ Agent toggle → the Map (the human home)
         page.click('.view-toggle button:has-text("Human")')
         page.wait_for_function(
             """() => {
-                const btn  = document.querySelector('button[data-nav="trailhead"]');
+                const btn  = document.querySelector('button[data-nav="map"]');
                 const main = document.querySelector('main');
                 return btn && btn.classList.contains('active') &&
+                       document.querySelector('.metro-mapbox svg') &&
                        main && main.innerText.trim().length > 40;
             }""")
-        ok("human view toggle → trailhead rendered")
+        ok("human view toggle → topic map rendered")
 
         page.wait_for_timeout(1500)  # let late async fetches surface errors
         browser.close()

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Brain University · Learning UI</title>
+<title>Train of Thought · Brain University</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -126,8 +126,8 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <script src="arxivis_data.js?v=4"></script>
   <script src="open_problems.js"></script>
   <script src="videos/manifest.js"></script>
-  <!-- What this learner has ridden (localStorage only) -->
-  <script src="progress.js?v=1"></script>
+  <!-- What this learner has ridden: localStorage, synced with the API -->
+  <script src="progress.js?v=2"></script>
 
   <!-- API client. BU_API_BASE + config.js already loaded above (before the -->
   <!-- gate), so api.js just needs the cache-busted include here.            -->
@@ -251,6 +251,7 @@ function App() {
   // Persist the Human/Agent view + expose it to CSS ([data-view] overrides).
   useEffect(() => {
     document.documentElement.dataset.view = view;
+    document.title = view === "agent" ? "Agent University · Brain University" : "Train of Thought · Brain University";
     try { localStorage.setItem("bu_view", view); } catch (_) {}
   }, [view]);
 
@@ -310,11 +311,13 @@ function App() {
     setScreen("ride");
   }, []);
 
+  // Moving on from a stop logs it (BU_PROGRESS → local + POST /walks/{id}/event).
+  const stopRef = useRef(stopIdx);
+  stopRef.current = stopIdx;
   const advance = useCallback((delta) => {
-    setStopIdx(i => {
-      if (delta > 0 && tour[i]) window.BU_PROGRESS?.markDone(tour[i].node);
-      return Math.max(0, Math.min(tour.length - 1, i + delta));
-    });
+    const i = stopRef.current;
+    if (delta > 0 && tour && tour[i]) window.BU_PROGRESS?.leave(i);
+    setStopIdx(Math.max(0, Math.min(tour.length - 1, i + delta)));
   }, [tour]);
 
   const handleBranch = useCallback(() => setBranch(true), []);
@@ -457,12 +460,20 @@ function App() {
     <div className="app-shell">
       {/* TOPBAR */}
       <header className="topbar">
-        <div className="brand">
-          <span className="glyph">B<span style={{opacity: 0.7}}>U</span></span>
-          <span>Brain University<span style={{ opacity: 0.5, marginLeft: 6 }}>
-            {view === "agent" ? "Agent University · est. 2026" : "· learning prototype"}
-          </span></span>
-        </div>
+        {view === "human" ? (
+          // The learner product: Train of Thought (by Brain University)
+          <div className="brand brand-tot">
+            <span className="brand-roundel" aria-hidden="true" />
+            <span>Train of Thought<small>by Brain University</small></span>
+          </div>
+        ) : (
+          <div className="brand">
+            <span className="glyph">B<span style={{opacity: 0.7}}>U</span></span>
+            <span>Brain University<span style={{ opacity: 0.5, marginLeft: 6 }}>
+              Agent University · est. 2026
+            </span></span>
+          </div>
+        )}
         <nav className="nav" aria-label="Main">
           {view === "human" && NAV_HUMAN.map(g => {
             const current = explorerOpen ? "explorer" : arxivisOpen ? "arxivis" : openprobOpen ? "openprob" : screen;
@@ -508,8 +519,10 @@ function App() {
           </div>
           <button
             onClick={() => (view === "agent" ? setAtpTourOpen(true) : setTutorialOpen(true))}
-            title={view === "agent" ? "Tour the Agent University" : "How to use Brain University"}
-            style={{
+            title={view === "agent" ? "Tour the Agent University" : "How to use Train of Thought"}
+            aria-label={view === "agent" ? "Tour the Agent University" : "How to use Train of Thought"}
+            className={view === "human" ? "tot-help" : undefined}
+            style={view === "human" ? undefined : {
               width: 24, height: 24, borderRadius: "50%",
               background: "transparent",
               border: "1px solid var(--c-line-strong)",
@@ -521,9 +534,15 @@ function App() {
             }}>
             ?
           </button>
-          <span>{learner.name}</span>
-          <span style={{ opacity: 0.4 }}>·</span>
-          <span style={{ color: "var(--c-bridge)" }}>online graph</span>
+          {view === "human" ? (
+            <span className="tot-avatar" role="img" aria-label={"Learner: " + learner.name} title={learner.name}>
+              {(learner.name || "L").slice(0, 1).toUpperCase()}
+            </span>
+          ) : (<>
+            <span>{learner.name}</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ color: "var(--c-bridge)" }}>online graph</span>
+          </>)}
         </div>
       </header>
 
@@ -813,7 +832,7 @@ function BranchStandalone({ onOpen }) {
       <div className="t-tag" style={{ color: "var(--c-bridge)" }}>≈ BRIDGE MOMENT</div>
       <h1 className="t-display" style={{ margin: "8px 0 12px" }}>The fork is the magic.</h1>
       <p style={{ fontSize: 17, lineHeight: 1.6, color: "var(--c-ink-muted)", maxWidth: 600 }}>
-        Most platforms make you finish a course before suggesting another. Brain University thinks
+        Most platforms make you finish a course before suggesting another. Train of Thought thinks
         in concepts, not courses — so when you land on a <em>bridge concept</em> (one with edges
         across multiple Louvain communities), the system surfaces fork options inline.
       </p>

@@ -88,7 +88,65 @@ function _realHistory() {
       color: colorOf(r.tour[0].cluster),
     };
   });
-  return { done, total, courses: courses.size, trails, streak: P.streak() };
+  // How well you know each line — the backend heatmap's formula
+  // (agents/heatmap.py: 0.3 visits + 0.4 ratings + 0.3 review depth),
+  // over the same data the server holds for this learner.
+  const cards = P.cards ? P.cards() : {};
+  const mastery = (net ? net.lines : []).map(L => {
+    const seen = L.stops.filter(id => done.has(id)).length;
+    const rated = L.stops.map(id => cards[id]).filter(c => c && c.last_quality >= 0);
+    if (!seen && !rated.length) return null;
+    const visit = seen / L.stops.length;
+    const quiz = rated.length ? rated.reduce((a, c) => a + c.last_quality, 0) / rated.length / 5 : 0;
+    const depth = rated.length ? rated.reduce((a, c) => a + Math.min(3, c.repetitions) / 3, 0) / rated.length : 0;
+    return {
+      name: L.name, color: L.color, score: 0.3 * visit + 0.4 * quiz + 0.3 * depth,
+      seen, total: L.stops.length, rated: rated.length,
+      avg: rated.length ? rated.reduce((a, c) => a + c.last_quality, 0) / rated.length : 0,
+    };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  return { done, total, courses: courses.size, trails, streak: P.streak(), mastery,
+           due: P.due ? P.due().length : 0, sync: P.sync ? P.sync() : null };
+}
+
+function SyncNote({ sync }) {
+  if (!sync || !sync.server) return null;
+  const text = sync.online
+    ? (sync.pending ? `Saving ${sync.pending} change${sync.pending > 1 ? "s" : ""} to the server…` : "Saved to the server.")
+    : `Saved in this browser; ${sync.pending ? sync.pending + " change" + (sync.pending > 1 ? "s" : "") + " will" : "it will"} sync when the server is reachable.`;
+  return <p className="t-cap" style={{ margin: "4px 0 0", color: "var(--c-ink-muted)" }}>{text}</p>;
+}
+
+function LineMastery({ rows, due, onNewTrail }) {
+  return (
+    <div className="card" style={{ marginBottom: 32 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
+        <div className="t-tag" style={{ color: "var(--c-ink-muted)" }}>HOW WELL YOU KNOW EACH LINE</div>
+        {due > 0 && (
+          <button className="btn" onClick={onNewTrail}>{due} {due === 1 ? "stop" : "stops"} due for review · open the map</button>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {rows.map(r => (
+          <div key={r.name} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 220px) 1fr auto", gap: 12, alignItems: "center" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+              <span aria-hidden="true" style={{ flex: "none", width: 22, height: 7, borderRadius: 4, background: r.color }} />
+              {r.name}
+            </span>
+            <div role="img" aria-label={`${Math.round(r.score * 100)} percent`} style={{ height: 8, borderRadius: 4, background: "var(--c-bg-elev-2)", overflow: "hidden" }}>
+              <div style={{ width: `${Math.round(r.score * 100)}%`, height: "100%", background: r.color }} />
+            </div>
+            <span className="t-cap" style={{ whiteSpace: "nowrap" }}>
+              {r.seen}/{r.total} stops{r.rated ? ` · rated ${r.avg.toFixed(1)}/5` : " · not rated yet"}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="t-cap" style={{ marginTop: 12 }}>
+        Stops you've ridden, how well you said they landed, and how many reviews they've survived.
+      </div>
+    </div>
+  );
 }
 
 // Plain-English RL metric cell with hover-tooltip explaining the math.
@@ -132,7 +190,10 @@ function MetricCell({ label, value, valueColor, tooltip, jargon }) {
 }
 
 function Dashboard({ learner, onResume, onResumeRide, onNewTrail }) {
-  const real = useMemo(_realHistory, []);
+  // Re-read when progress changes (a ride logged, the server sync landing).
+  const [ver, setVer] = useState(0);
+  useEffect(() => (window.BU_PROGRESS ? window.BU_PROGRESS.subscribe(() => setVer(v => v + 1)) : undefined), []);
+  const real = useMemo(_realHistory, [ver]);
   const totalNodesVisited = real ? real.done.size : 14;
   const totalCourses = real ? real.courses : 4;
   const totalConcepts = real ? real.total : BU_DATA.NODES.length;
@@ -163,11 +224,14 @@ function Dashboard({ learner, onResume, onResumeRide, onNewTrail }) {
                 Ride a line on the Map and your real progress replaces this demo.
               </p>
             )}
+            {real && <SyncNote sync={real.sync} />}
           </div>
           <button className="btn primary" onClick={onNewTrail}>
             Plan a ride on the map
           </button>
         </div>
+
+        {real && real.mastery.length > 0 && <LineMastery rows={real.mastery} due={real.due} onNewTrail={onNewTrail} />}
 
         {/* Progress on the brain */}
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 32 }}>

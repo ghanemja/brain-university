@@ -529,6 +529,20 @@ function MetroMap({ onStartRide }) {
 
   const start = () => onStartRide && onStartRide(rideTour(plan));
 
+  // Review: stops whose spaced-repetition review is due (from your ratings)
+  const dueList = P && P.due ? P.due().filter(c => net.byId[c.node]) : [];
+  const dueIds = new Set(dueList.map(c => c.node));
+  const nReview = Math.min(dueList.length, k);
+  const startReview = () => {
+    const RATED = { 0: "Not yet", 1: "Not yet", 2: "Not yet", 3: "Mostly", 4: "Mostly", 5: "Got it" };
+    const tour = dueList.slice(0, nReview).map((c, i) => ({
+      node: c.node, cluster: net.byId[c.node].cluster,
+      kind: i === 0 ? "start" : i === nReview - 1 ? "capstone" : "deepen",
+      rationale: `Review: you rated this "${RATED[c.last_quality] || "Not yet"}" last time. Rate it again to set the next review.`,
+    }));
+    if (tour.length && onStartRide) onStartRide(tour);
+  };
+
   // the panel's stop list: the selected line in riding order (a window of it
   // for long lines), then the stops after a change of line
   const pos = {};
@@ -590,6 +604,18 @@ function MetroMap({ onStartRide }) {
             ))}
           </div>
         </div>
+
+        {dueList.length > 0 && (
+          <div className="metro-review">
+            <div>
+              <b>Review · {dueList.length} {dueList.length === 1 ? "stop" : "stops"} due</b>
+              <span>{listAnd(dueList.slice(0, 3).map(c => net.byId[c.node].name))}{dueList.length > 3 ? " and more" : ""}</span>
+            </div>
+            <button type="button" className="metro-btn ghost" onClick={startReview}>
+              Review {nReview} {nReview === 1 ? "stop" : "stops"}
+            </button>
+          </div>
+        )}
 
         <div className="metro-field" style={{ gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -661,6 +687,7 @@ function MetroMap({ onStartRide }) {
                 const label = L.lone ? (si === 0 ? [L.name] : [""]) : s.label;
                 return (
                   <g key={s.id} className="metro-hit" onClick={() => pickStop(li, s.id)}>
+                    {dueIds.has(s.id) && <circle cx={s.x} cy={s.y} r={first ? 14 : 11} fill="none" stroke="#e8a100" strokeWidth="3" />}
                     <circle cx={s.x} cy={s.y} r={first ? 10 : change ? 7.5 : 6.5}
                             fill={first || done ? L.color : "#ffffff"}
                             stroke={first || change ? "#14171a" : on || done ? L.color : faded}
@@ -704,6 +731,7 @@ function MetroMap({ onStartRide }) {
           <span><svg aria-hidden="true" viewBox="0 0 18 18" width="18" height="18"><circle cx="9" cy="9" r="6" fill="#ffffff" stroke="#d4351c" strokeWidth="3" /></svg>Stop: one idea, about {MIN_PER_STOP} min</span>
           <span><svg aria-hidden="true" viewBox="0 0 18 18" width="18" height="18"><circle cx="9" cy="9" r="6" fill="#d4351c" stroke="#d4351c" strokeWidth="3" /><path d="M6 9 l2.2 2.4 l4 -4.6" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>Done</span>
           <span><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="8.5" fill={S.color} stroke="#14171a" strokeWidth="3.5" /></svg>Your first stop</span>
+          {dueIds.size > 0 && <span><svg aria-hidden="true" viewBox="0 0 26 26" width="24" height="24"><circle cx="13" cy="13" r="10" fill="none" stroke="#e8a100" strokeWidth="3" /><circle cx="13" cy="13" r="5.5" fill="#ffffff" stroke="#d4351c" strokeWidth="3" /></svg>Due for review</span>}
           <span><svg aria-hidden="true" viewBox="0 0 44 18" width="44" height="18"><rect x="2" y="2" width="40" height="14" rx="7" fill="#ffffff" stroke="#14171a" strokeWidth="2.5" /></svg>Change lines here</span>
         </div>
 

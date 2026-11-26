@@ -1,4 +1,4 @@
-/* global React, BU_DATA, BU_METRO, ARXIVIS, THREE */
+/* global React, BU_DATA, BU_METRO, BU_PROGRESS, ARXIVIS, THREE */
 // ─────────────────────────────────────────────────────────────────
 // SCREEN · LEARN — ride stop to stop
 //
@@ -53,6 +53,16 @@ function rideClip(text, max) {
   const cut = text.slice(0, max);
   const dot = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "));
   return (dot > max * 0.5 ? cut.slice(0, dot + 1) : cut.slice(0, cut.lastIndexOf(" ")) + "…").replace(/;$/, ".");
+}
+
+// "How well did that land?" — SM-2 qualities (see agents/spaced_repetition.py):
+// below 3 comes back in 10 minutes; 4 and 5 come back in a day, then later.
+const RIDE_RATINGS = [{ q: 2, label: "Not yet" }, { q: 4, label: "Mostly" }, { q: 5, label: "Got it" }];
+function rideWhen(card) {
+  const s = (card && card.due_ts ? card.due_ts : 0) - Date.now() / 1000;
+  if (s < 3600) return "in " + Math.max(1, Math.round(s / 60)) + " minutes";
+  if (s < 36 * 3600) return "tomorrow";
+  return "in " + Math.round(s / 86400) + " days";
 }
 
 // Papers in the arXivis library that mention a concept, strongest mention first.
@@ -378,6 +388,7 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onP
   const [moving, setMoving] = useState(false);
   const [runMs, setRunMs] = useState(0);
   const [noScene, setNoScene] = useState(false);
+  const [rated, setRated] = useState({}); // node → { q, card } rated on this visit
   const nextRef = useRef(null);
   nextRef.current = () => { if (idx < n - 1) onAdvance(1); };
 
@@ -467,6 +478,23 @@ function MetroRide({ tour, idx, onAdvance, onBranch, onSummit, onFullLesson, onP
           <div className="metro-ride-change">
             <span>Change here for the {BU_METRO.listAnd(cs.changes.map(c => c.name))} {cs.changes.length > 1 ? "lines" : "line"}</span>
             {onBranch && <button type="button" className="metro-btn ghost" onClick={() => onBranch(cs.id)}>Change lines</button>}
+          </div>
+        )}
+        {!moving && window.BU_PROGRESS && (
+          <div className="metro-ride-rate">
+            <span id="metro-rate-label">How well did that land?</span>
+            <div role="group" aria-labelledby="metro-rate-label">
+              {RIDE_RATINGS.map(r => {
+                const on = rated[cs.id] && rated[cs.id].q === r.q;
+                return (
+                  <button key={r.q} type="button" aria-pressed={!!on} className={"metro-rate" + (on ? " on" : "")}
+                          onClick={() => setRated(m => ({ ...m, [cs.id]: { q: r.q, card: BU_PROGRESS.rate(cs.id, r.q) } }))}>
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+            {rated[cs.id] && <small role="status">Saved. It comes back for review {rideWhen(rated[cs.id].card)}.</small>}
           </div>
         )}
         {!moving && cs.papers.length > 0 && (

@@ -21,7 +21,7 @@ const SLIDES = [
   {
     icon: "🧠",
     tag: "00 · WELCOME",
-    title: "Brain University in 60 seconds.",
+    title: "Train of Thought in 60 seconds.",
     body:
       "A self-paced learning system built on top of an LLM-curated knowledge graph, drawn like a train map. Pick a line, say how long you have, and ride it stop by stop. Map, Learn, Research and Progress are the four ways in; everything else lives under More.",
     cta: "Show me everything",

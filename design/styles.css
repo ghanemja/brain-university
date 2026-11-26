@@ -855,3 +855,91 @@ body::before {
 .metro-ride-papers { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .metro-ride-papers > span { font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--m-muted); }
 .metro-ride-papers a { color: var(--m-link); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Learn: rate a stop for spaced repetition */
+.metro-ride-rate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 6px; background: var(--m-bg); }
+.metro-ride-rate > span { font-size: 14px; font-weight: 700; }
+.metro-ride-rate > div { display: flex; gap: 6px; }
+.metro-ride-rate small { flex-basis: 100%; font-size: 13px; color: var(--m-muted); }
+.metro-rate {
+  height: 34px; padding: 0 12px; border: 2px solid var(--m-ink); border-radius: 999px;
+  background: #ffffff; color: var(--m-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.metro-rate.on { background: var(--m-ink); color: #ffffff; }
+/* Map: review ticket and due stops */
+.metro-review {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 12px 14px; border-radius: 6px; background: #fff6dd; border: 2px solid #e8a100;
+}
+.metro-review b { display: block; font-size: 15px; }
+.metro-review span { font-size: 13.5px; color: var(--m-ink-2); }
+
+/* Learner brand: Train of Thought (by Brain University) */
+.topbar .brand-tot { gap: 9px; font-family: var(--f-sans); text-transform: none; letter-spacing: -0.01em; }
+.topbar .brand-tot > span:last-child { display: flex; align-items: baseline; gap: 7px; font-size: 15px; font-weight: 700; color: var(--c-ink); white-space: nowrap; }
+.topbar .brand-tot small { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; color: var(--c-ink-muted); }
+.brand-roundel { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 5px solid #d4351c; background: #ffffff; }
+@media (max-width: 1100px) { .topbar .brand-tot small { display: none; } }
+
+/* ==========================================================================
+   Human view top bar — the Train of Thought header from the mockups:
+   white bar, black rule, red ring + name, plain tabs with a thick underline
+   on the current one, account circle on the right. Fixed light colours so
+   it reads the same under every palette. The Agent view keeps its own bar.
+   ========================================================================== */
+[data-view="human"] .topbar {
+  background: #ffffff; border-bottom: 2px solid #14171a; backdrop-filter: none; padding: 0 22px;
+}
+[data-view="human"] .topbar .brand-roundel { width: 26px; height: 26px; }
+[data-view="human"] .topbar .brand-tot > span:last-child { font-size: 16px; color: #14171a; }
+[data-view="human"] .topbar .brand-tot small { color: #6b7178; }
+[data-view="human"] .topbar .nav {
+  align-self: stretch; gap: 4px; padding: 0; background: transparent; border: 0; border-radius: 0;
+}
+[data-view="human"] .topbar .nav > button,
+[data-view="human"] .topbar .nav .nav-menu > button {
+  height: 54px; padding: 0 14px; border-radius: 0; background: transparent; box-shadow: none;
+  font-family: var(--f-sans); font-size: 15px; font-weight: 500; color: #51575e;
+}
+[data-view="human"] .topbar .nav > button:hover,
+[data-view="human"] .topbar .nav .nav-menu > button:hover { color: #14171a; }
+[data-view="human"] .topbar .nav > button.active,
+[data-view="human"] .topbar .nav .nav-menu > button.active {
+  color: #14171a; font-weight: 700; background: transparent; box-shadow: inset 0 -4px 0 #14171a;
+}
+[data-view="human"] .topbar .nav button:focus-visible { outline: 3px solid #1d70b8; outline-offset: -3px; }
+[data-view="human"] .nav-menu-list {
+  top: calc(100% + 2px); padding: 6px; background: #ffffff; border: 2px solid #14171a; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 23, 26, 0.16);
+}
+[data-view="human"] .topbar .nav .nav-menu-list button {
+  color: #14171a; font-size: 14.5px; font-weight: 600; padding: 9px 12px; border-radius: 6px;
+}
+[data-view="human"] .topbar .nav .nav-menu-list button:hover,
+[data-view="human"] .topbar .nav .nav-menu-list button.active { background: #f4f5f2; }
+[data-view="human"] .nav-menu-list small { color: #6b7178; font-weight: 400; }
+[data-view="human"] .topbar .view-toggle { background: #f4f5f2; border-color: #d5d8d2; }
+[data-view="human"] .topbar .view-toggle button { color: #51575e; }
+[data-view="human"] .topbar .view-toggle button.active { background: #14171a; color: #ffffff; box-shadow: none; }
+.tot-help {
+  width: 30px; height: 30px; border-radius: 50%; border: 2px solid #14171a; background: #ffffff;
+  color: #14171a; font: 700 14px var(--f-sans); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.tot-help:hover { background: #f4f5f2; }
+.tot-avatar {
+  width: 34px; height: 34px; border-radius: 50%; background: #14171a; color: #ffffff;
+  font: 700 14px var(--f-sans); display: inline-flex; align-items: center; justify-content: center;
+}
+@media (max-width: 760px) {
+  [data-view="human"] .topbar { padding: 0 10px; }
+  [data-view="human"] .topbar .nav > button,
+  [data-view="human"] .topbar .nav .nav-menu > button { padding: 0 9px; font-size: 14px; }
+}
+@media (max-width: 560px) {
+  [data-view="human"] .topbar .nav > button,
+  [data-view="human"] .topbar .nav .nav-menu > button { padding: 0 6px; font-size: 13px; }
+}
+[data-view="human"] .topbar .nav button { white-space: nowrap; }
+@media (max-width: 760px) {
+  .topbar .brand-tot > span:last-child { display: none; }
+}
