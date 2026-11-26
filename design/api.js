@@ -8,17 +8,13 @@
 //   window.BU_API_BASE = "http://localhost:8090";
 //   window.BU_USER_ID  = "anon-" + crypto.randomUUID();
 //
-// Auth: every request attaches Authorization: Bearer <token> from
-// sessionStorage.bu_auth_token, minted by the page's silent demo sign-in
-// (window.BU_AUTH in Brain University.html). Requests first wait (bounded)
-// for that sign-in so they carry the token. A 401 asks BU_AUTH for a fresh
-// token and retries once; if it still fails the helper throws an error
-// tagged {unauthorized:true, status:401}: read methods fall back to the
-// BU_DATA mock, writes report the failure. Nothing here reloads the page
-// (there is no login screen to send anyone to; reloading only re-ran the
-// same sign-in, in a loop when the server refused it). A 403
-// (authenticated, insufficient role) NEVER clears the session — helpers
-// throw an error tagged {forbidden:true} and write methods surface
+// Auth: none. The site is an open demo with no login, so requests carry no
+// credentials; the backend serves them as the demo account when it runs
+// with BU_OPEN_DEMO=1 (api/auth.py). A 401 therefore means the backend is
+// not in open-demo mode: helpers throw an error tagged {unauthorized:true,
+// status:401}, read methods fall back to the BU_DATA mock and writes report
+// the failure. Nothing here reloads the page. A 403 (insufficient role)
+// throws an error tagged {forbidden:true}; write methods surface
 // {ok:false, forbidden:true} to the caller.
 //
 // All methods are async + return plain JS objects.
@@ -29,41 +25,11 @@
   const user = () => window.BU_USER_ID || "anon";
   const live = () => Boolean(base());
 
-  function authHeader() {
-    try {
-      const tok = sessionStorage.getItem("bu_auth_token");
-      return tok ? { "Authorization": `Bearer ${tok}` } : {};
-    } catch (_) { return {}; }
-  }
-
-  const AUTH_WAIT_MS = 8000;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const auth = () => window.BU_AUTH || null;
-  const currentToken = () => {
-    try { return sessionStorage.getItem("bu_auth_token"); } catch (_) { return null; }
-  };
-
-  // fetch() with the bearer token. Waits (at most AUTH_WAIT_MS) for the
-  // page's silent sign-in, so the first calls don't race it. On 401: ask
-  // BU_AUTH for a fresh token (shared + rate-limited there) and retry once.
-  // A 401 that survives is thrown tagged {unauthorized:true}; never reloads.
-  async function authFetch(url, init = {}) {
-    const a = auth();
-    if (a && a.ready) {
-      try { await Promise.race([a.ready, sleep(AUTH_WAIT_MS)]); } catch (_) {}
-    }
-    const send = tok => fetch(url, {
-      ...init,
-      headers: { ...(init.headers || {}), ...(tok ? { "Authorization": `Bearer ${tok}` } : {}) },
-    });
-    const tok = currentToken();
-    let r = await send(tok);
-    if (r.status === 401 && a && a.refresh) {
-      const fresh = await a.refresh(tok);
-      if (fresh && fresh !== tok) r = await send(fresh);
-    }
+  // fetch(), with a 401 thrown tagged {unauthorized:true} (see Auth above).
+  async function apiFetch(url, init) {
+    const r = await fetch(url, init);
     if (r.status === 401) {
-      const e = new Error("401 — not signed in to the backend");
+      const e = new Error("401 — backend is not in open-demo mode (BU_OPEN_DEMO=1)");
       e.status = 401;
       e.unauthorized = true;
       throw e;
@@ -88,7 +54,7 @@
     if (params) Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
     });
-    const r = await authFetch(url.toString());
+    const r = await apiFetch(url.toString());
     handleForbidden(r);
     if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
     return r.json();
@@ -96,7 +62,7 @@
 
   async function jpost(path, body) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await authFetch(base() + path, {
+    const r = await apiFetch(base() + path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
@@ -108,7 +74,7 @@
 
   async function jpostMultipart(path, formData) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await authFetch(base() + path, { method: "POST", body: formData });
+    const r = await apiFetch(base() + path, { method: "POST", body: formData });
     handleForbidden(r);
     if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
     return r.json();
@@ -123,9 +89,6 @@
   const API = {
     live,
     mediaUrl,
-    // Shared bearer-token fetch (see authFetch above) for screens that add
-    // their own endpoints, e.g. the vault's knowledge methods.
-    authFetch,
 
     // ─── Health / graph ─────────────────────────────────────────────
     health:    () => jget("/health"),
@@ -319,7 +282,7 @@
     async reportCardUrl(agentId) {
       if (!live()) throw new Error("BU_API_BASE not set");
       const path = "/atp/agents/" + encodeURIComponent(agentId) + "/report.pdf";
-      const r = await authFetch(base() + path);
+      const r = await apiFetch(base() + path);
       handleForbidden(r);
       if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
       const blob = await r.blob();
@@ -537,8 +500,8 @@
 
     // Licensed expert chat. Auth is the LICENSE KEY (X-ATP-License-Key),
     // not the session bearer, and licensing is server-truth: NO offline
-    // fallback, and a 401/403 here is about the key — it must never touch
-    // the session token, so this bypasses authFetch()'s 401 refresh.
+    // fallback, and a 401/403 here is about the key, so this skips
+    // apiFetch() and tags the error itself.
     async expertChat(agentId, messages, licenseKey) {
       if (!live()) throw new Error("BU_API_BASE not set");
       const r = await fetch(
@@ -546,7 +509,6 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...authHeader(),
             ...(licenseKey ? { "X-ATP-License-Key": licenseKey } : {}),
           },
           body: JSON.stringify({ messages: messages || [] }),

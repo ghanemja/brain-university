@@ -78,6 +78,9 @@ services:
         sync: false          # distinct from prod — isolates session tokens
       - key: BU_AUTH_TTL_HOURS
         value: "24"
+      # Open demo, as in prod (render.yaml): no login on the site.
+      - key: BU_OPEN_DEMO
+        value: "1"
       # ── Signing keys (Phases 3/4) — distinct from prod ───────────────────
       - key: EVIDENCE_SIGNING_KEY
         sync: false

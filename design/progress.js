@@ -40,24 +40,14 @@ window.BU_PROGRESS = (() => {
   let online = false, lastSync = 0, retryTimer = 0, flushing = false, connecting = false;
   const base = () => (window.BU_API_BASE || "").replace(/\/+$/, "");
   const user = () => window.BU_USER_ID || "anon";
-  const token = () => { try { return sessionStorage.getItem("bu_auth_token"); } catch (_) { return null; } };
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  // Our own fetch (progress.js loads before api.js). A 401 asks the page's
-  // sign-in (window.BU_AUTH) for a fresh token and retries once; if that
-  // fails too, the call simply waits in the outbox for the next try.
+  // Our own fetch (progress.js loads before api.js). No credentials: the
+  // site is an open demo (BU_OPEN_DEMO=1 on the backend). A failed call,
+  // 401 included, never reloads the page; it waits in the outbox instead.
   async function call(method, path, body) {
-    const send = t => {
-      const headers = { "Content-Type": "application/json" };
-      if (t) headers.Authorization = "Bearer " + t;
-      return fetch(base() + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    };
-    const t = token();
-    let r = await send(t);
-    const auth = window.BU_AUTH;
-    if (r.status === 401 && auth && auth.refresh) {
-      const fresh = await auth.refresh(t);
-      if (fresh && fresh !== t) r = await send(fresh);
-    }
+    const r = await fetch(base() + path, {
+      method, headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
     if (!r.ok) { const e = new Error(method + " " + path + " → " + r.status); e.status = r.status; throw e; }
     return r.json();
   }
@@ -168,10 +158,6 @@ window.BU_PROGRESS = (() => {
     if (connecting || !base() || !window.fetch) return;
     connecting = true;
     try {
-      // The page signs in to the demo account at load (window.BU_AUTH);
-      // wait for that, up to 10 s, so the first calls carry the token.
-      const auth = window.BU_AUTH;
-      if (auth && auth.ready) { try { await Promise.race([auth.ready, sleep(10000)]); } catch (_) { /* go without */ } }
       try { await call("GET", "/health"); online = true; } catch (_) { online = false; retryLater(); return; }
       try { hydrate(await call("GET", "/progress?user_id=" + encodeURIComponent(user()))); }
       catch (e) { if (e.status !== 404) { online = false; retryLater(); return; } } // 404: an older API without /progress

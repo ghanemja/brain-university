@@ -44,6 +44,7 @@ Render is the paid alternative for always-on traffic.
    | `BU_AUTH_PASSWORD`    | `<REDACTED — set via env, rotation handled out-of-band>` |
    | `BU_AUTH_SECRET`      | `<REDACTED — set via env, rotation handled out-of-band>` |
    | `BU_AUTH_TTL_HOURS`   | `24` (optional)                                       |
+   | `BU_OPEN_DEMO`        | `1` — the site has no login; visitors without a token run as the demo account |
 
    > **Do not** set `BU_AUTH_DISABLED`. That's a local-only escape hatch.
 
@@ -158,10 +159,11 @@ Gemma setup: [HF_ENDPOINT_SETUP.md](HF_ENDPOINT_SETUP.md).
 - [ ] `CORS_ORIGINS` on Render = exact Netlify URL (not `*`)
 - [ ] `BU_AUTH_USER` + `BU_AUTH_PASSWORD` + `BU_AUTH_SECRET` set on Render
 - [ ] `BU_AUTH_DISABLED` UNSET on Render (it'd disable all auth)
+- [ ] `BU_OPEN_DEMO=1` on Render (the site has no login; without it the site shows bundled demo data)
 - [ ] `ANTHROPIC_API_KEY` set on Render
 - [ ] `/health` returns `{ok:true}` on the Render URL
 - [ ] `POST /login` returns a token
-- [ ] First load of the Netlify URL shows login → tutorial after success
+- [ ] First load of the Netlify URL goes straight to the app (no login)
 
 ---
 

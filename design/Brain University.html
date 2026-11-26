@@ -25,61 +25,11 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
                                    localStorage.setItem("bu_user_id", id); return id; })();
   </script>
   <script>
-    // Open demo — no login screen. Silently mint a bearer token with the demo
-    // account so the (auth-protected) backend still accepts requests: legacy
-    // /login first, then the Phase-2 org login (/auth/login). The app renders
-    // immediately.
-    //
-    // window.BU_AUTH is the one owner of that token (sessionStorage
-    // bu_auth_token), shared by api.js, progress.js and the vault screen:
-    //   ready          — promise of the first sign-in (token, or null if the
-    //                    server refused it); API calls wait on it, bounded,
-    //                    so the first requests already carry the token
-    //   token()        — the current token, or null
-    //   refresh(stale) — a request carrying `stale` came back 401: drop it and
-    //                    sign in again. Concurrent callers share one attempt;
-    //                    after a refusal there are no more attempts for 60 s,
-    //                    so a backend that refuses the demo account sees one
-    //                    login a minute, not one per request.
-    // Nothing here reloads the page: a 401 that survives a refresh is handed
-    // back to the caller (read methods fall back to the bundled demo data).
-    window.BU_AUTH = (function(){
-      var apiBase = (window.BU_API_BASE || "http://localhost:8090").replace(/\/+$/,"");
-      var creds = { username: "admin", password: "MJiqvzRqd9SVfw2kmI65og" };
-      var RETRY_MS = 60000, inflight = null, refusedAt = 0;
-      function token(){ try { return sessionStorage.getItem('bu_auth_token'); } catch(_){ return null; } }
-      function store(t){ try { if (t) sessionStorage.setItem('bu_auth_token', t); else sessionStorage.removeItem('bu_auth_token'); } catch(_){} }
-      function post(path, body){
-        return fetch(apiBase + path, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(body) })
-          .then(function(r){ return r.ok ? r.json() : null; })
-          .catch(function(){ return null; });
-      }
-      function signIn(){
-        if (inflight) return inflight;
-        inflight = post('/login', creds)
-          .then(function(d){
-            // Legacy refused — try the org login with {email, password}.
-            return d && d.token ? d : post('/auth/login', { email: creds.username, password: creds.password });
-          })
-          .then(function(d){
-            var t = (d && d.token) || null;
-            if (t) store(t); else refusedAt = Date.now();
-            inflight = null;
-            return t;
-          });
-        return inflight;
-      }
-      function refresh(stale){
-        var cur = token();
-        if (cur && cur !== stale) return Promise.resolve(cur); // another caller already refreshed
-        if (cur) store(null);                                  // known bad: stop sending it
-        if (inflight) return inflight;
-        if (refusedAt && Date.now() - refusedAt < RETRY_MS) return Promise.resolve(null);
-        return signIn();
-      }
-      return { ready: token() ? Promise.resolve(token()) : signIn(), token: token, refresh: refresh };
-    })();
+    // Open demo: no login of any kind. The page sends no credentials; the
+    // backend serves visitors without a token as the demo account
+    // (BU_OPEN_DEMO=1, api/auth.py). Drop any token an earlier version of
+    // this page left in the tab, so it is never sent again.
+    try { sessionStorage.removeItem('bu_auth_token'); sessionStorage.removeItem('bu_auth'); } catch(_){}
   </script>
   <div id="root"></div>
 
@@ -95,9 +45,9 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <!-- parsed, inject the precompiled .compiled/*.js in the exact order of   -->
   <!-- the type="text/babel" tags below (which stay inert without Babel).    -->
   <!-- Otherwise: EXACTLY the zero-build dev path — pinned CDN dev React +   -->
-  <!-- in-browser Babel compiling the raw .jsx tags. config.js + the silent  -->
-  <!-- demo sign-in (BU_AUTH) already ran above; data.js/api.js keep loading -->
-  <!-- between frameworks and app code in both modes.                        -->
+  <!-- in-browser Babel compiling the raw .jsx tags. config.js already ran  -->
+  <!-- above; data.js/api.js keep loading between frameworks and app code in -->
+  <!-- both modes.                                                           -->
   <script>
   (function () {
     var manifest = null;
@@ -163,8 +113,8 @@ html[data-display-font="mono"]    { --f-display: "JetBrains Mono", "SF Mono", Me
   <!-- What this learner has ridden: localStorage, synced with the API -->
   <script src="progress.js?v=2"></script>
 
-  <!-- API client. BU_API_BASE + config.js + BU_AUTH already set up above,  -->
-  <!-- so api.js just needs the cache-busted include here.                   -->
+  <!-- API client. BU_API_BASE + config.js already set up above, so api.js -->
+  <!-- just needs the cache-busted include here.                             -->
   <script>document.write('<script src="api.js?v=' + Date.now() + '"><\/script>');</script>
 
   <!-- Component libraries (each Babel-compiled, exports to window) -->

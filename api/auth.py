@@ -25,6 +25,14 @@ Env vars (read at process start):
     BU_AUTH_DISABLED   — "1" to bypass auth entirely (dev only; used by
                          scripts/demo_start.sh). Requests run as
                          org-demo/admin so org-scoped routes keep working.
+    BU_OPEN_DEMO       — "1" for the public open demo (the deployed site has
+                         no login): requests WITHOUT a bearer token run as the
+                         legacy demo principal (org-demo/admin). Unlike
+                         BU_AUTH_DISABLED, auth stays ON: BU_AUTH_PASSWORD /
+                         BU_AUTH_SECRET are still required, and a request
+                         that DOES carry a token is verified as usual (bad or
+                         expired token → 401), so org accounts keep their
+                         own identity and tenant scope.
 
 Routes protected by middleware are everything except an allowlist:
     /health, /login, /auth/login, /auth/oidc/{login,callback}, /docs,
@@ -52,6 +60,7 @@ AUTH_PASSWORD = os.environ.get("BU_AUTH_PASSWORD", "")
 AUTH_SECRET   = os.environ.get("BU_AUTH_SECRET", "").encode("utf-8")
 AUTH_TTL_S    = int(os.environ.get("BU_AUTH_TTL_HOURS", "24")) * 3600
 AUTH_DISABLED = os.environ.get("BU_AUTH_DISABLED", "") == "1"
+OPEN_DEMO     = os.environ.get("BU_OPEN_DEMO", "") == "1"
 
 if AUTH_DISABLED:
     # Explicit dev/demo opt-in (scripts/demo_start.sh, .claude/launch.json).
@@ -83,6 +92,13 @@ else:
             + ". Set them in the deployment environment (see render.yaml / "
             "DEPLOY.md), or export BU_AUTH_DISABLED=1 for local dev only "
             "(scripts/demo_start.sh does this)."
+        )
+    if OPEN_DEMO:
+        print(
+            "NOTE: BU_OPEN_DEMO=1 — requests without a bearer token run as "
+            f"the demo account ({AUTH_USER!r}, org 'org-demo', role 'admin'). "
+            "Requests that carry a token are still verified.",
+            file=sys.stderr,
         )
     if len(AUTH_SECRET) < 32:
         # HS256 signing key — short keys are brute-forceable. Same fail-loud
@@ -232,6 +248,14 @@ async def auth_middleware(request: Request, call_next):
 
     auth_hdr = request.headers.get("authorization", "")
     if not auth_hdr.lower().startswith("bearer "):
+        if OPEN_DEMO:
+            # Public open demo: an anonymous visitor is the demo account
+            # (the access the page's hard-coded demo password used to give).
+            _set_principal(request, Principal(
+                user=AUTH_USER, user_id=None,
+                org_id=LEGACY_ORG_ID, role=LEGACY_ROLE,
+            ))
+            return await call_next(request)
         from fastapi.responses import JSONResponse
         return JSONResponse(
             {"detail": "missing bearer token"}, status_code=401,

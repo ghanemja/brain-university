@@ -7,16 +7,15 @@ const { useState, useMemo, useEffect, useRef } = React;
 // (docs/HARDENING.md Phase 6).
 //
 // WHY HERE: design/api.js (owned by earlier phases) exposes only its
-// finished methods plus live()/mediaUrl()/authFetch() — the jget/jpost/
-// jpostMultipart helpers are closure-private and NOT exported. So this screen adds the
-// knowledge methods itself through local helpers built on api.js's shared
-// BU_API.authFetch: base from window.BU_API_BASE, bearer from the page's
-// silent demo sign-in (BU_AUTH), 401 → one token refresh + retry, then an
-// error tagged {unauthorized:true} (never a page reload), 403 → error tagged
-// {forbidden:true} carrying the server's VERBATIM `detail` string (e.g.
-// "requires SME role") so the UI can show role errors as sent. The
-// Object.assign is guarded: the moment api.js ships its own
-// knowledgeUpload, this whole block becomes a no-op.
+// finished methods plus live()/mediaUrl() — the jget/jpost/jpostMultipart
+// helpers are closure-private and NOT exported. So this screen adds the
+// knowledge methods itself through local fetch helpers that mirror the
+// api.js idiom: base from window.BU_API_BASE, no credentials (open demo,
+// BU_OPEN_DEMO=1 on the backend), 401 → error tagged {unauthorized:true}
+// (never a page reload), 403 → error tagged {forbidden:true} carrying the
+// server's VERBATIM `detail` string (e.g. "requires SME role") so the UI
+// can show role errors as sent. The Object.assign is guarded: the moment
+// api.js ships its own knowledgeUpload, this whole block becomes a no-op.
 //
 // Endpoint contract (api/knowledge.py — Phase 6 backend):
 //   POST /knowledge/docs                   multipart "file" (md/txt/pdf,
@@ -43,22 +42,14 @@ const { useState, useMemo, useEffect, useRef } = React;
   const base = () => (window.BU_API_BASE || "").replace(/\/+$/, "");
   const live = () => Boolean(base());
 
-  // Bearer fetch with the shared 401 handling (refresh the demo token once,
-  // retry, then throw {unauthorized:true}). Never reloads: a screen that
-  // reloads on a 401 it triggered itself remounts, re-fires the read, 401s
-  // again — an infinite reload loop (seen live against the deployed backend
-  // when the stored token was stale/absent). Fallback for an api.js that
-  // predates authFetch: plain fetch with the stored token, same tagging.
-  async function authFetch(url, init) {
-    if (window.BU_API.authFetch) return window.BU_API.authFetch(url, init);
-    const headers = { ...((init && init.headers) || {}) };
-    try {
-      const tok = sessionStorage.getItem("bu_auth_token");
-      if (tok) headers["Authorization"] = `Bearer ${tok}`;
-    } catch (_) {}
-    const r = await fetch(url, { ...(init || {}), headers });
+  // fetch(), with a 401 thrown tagged {unauthorized:true} (the backend is
+  // not in open-demo mode). Never reloads: a screen that reloads on a 401 it
+  // triggered itself remounts, re-fires the read, 401s again — an infinite
+  // reload loop (seen live against the deployed backend).
+  async function apiFetch(url, init) {
+    const r = await fetch(url, init);
     if (r.status === 401) {
-      const e = new Error("401 — not signed in to the backend");
+      const e = new Error("401 — backend is not in open-demo mode (BU_OPEN_DEMO=1)");
       e.status = 401;
       e.unauthorized = true;
       throw e;
@@ -92,7 +83,7 @@ const { useState, useMemo, useEffect, useRef } = React;
     if (params) Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
     });
-    const r = await authFetch(url.toString());
+    const r = await apiFetch(url.toString());
     await handleForbidden(r);
     if (!r.ok) await fail(r, `GET ${path}`);
     return r.json();
@@ -100,7 +91,7 @@ const { useState, useMemo, useEffect, useRef } = React;
 
   async function kpost(path, body) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await authFetch(base() + path, {
+    const r = await apiFetch(base() + path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
@@ -112,7 +103,7 @@ const { useState, useMemo, useEffect, useRef } = React;
 
   async function kmultipart(path, formData) {
     if (!live()) throw new Error("BU_API_BASE not set");
-    const r = await authFetch(base() + path, { method: "POST", body: formData });
+    const r = await apiFetch(base() + path, { method: "POST", body: formData });
     await handleForbidden(r);
     if (!r.ok) await fail(r, `POST ${path}`);
     return r.json();
