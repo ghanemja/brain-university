@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Train of Thought · Brain University</title>
+<title>Train of Thought</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -285,7 +285,7 @@ function App() {
   // Persist the Human/Agent view + expose it to CSS ([data-view] overrides).
   useEffect(() => {
     document.documentElement.dataset.view = view;
-    document.title = view === "agent" ? "Agent University · Brain University" : "Train of Thought · Brain University";
+    document.title = view === "agent" ? "Agent University" : "Train of Thought";
     try { localStorage.setItem("bu_view", view); } catch (_) {}
   }, [view]);
 
@@ -495,16 +495,16 @@ function App() {
       {/* TOPBAR */}
       <header className="topbar">
         {view === "human" ? (
-          // The learner product: Train of Thought (by Brain University)
+          // The learner product: Train of Thought
           <div className="brand brand-tot">
             <span className="brand-roundel" aria-hidden="true" />
-            <span>Train of Thought<small>by Brain University</small></span>
+            <span>Train of Thought</span>
           </div>
         ) : (
           <div className="brand">
-            <span className="glyph">B<span style={{opacity: 0.7}}>U</span></span>
-            <span>Brain University<span style={{ opacity: 0.5, marginLeft: 6 }}>
-              Agent University · est. 2026
+            <span className="glyph">A<span style={{opacity: 0.7}}>U</span></span>
+            <span>Agent University<span style={{ opacity: 0.5, marginLeft: 6 }}>
+              est. 2026
             </span></span>
           </div>
         )}

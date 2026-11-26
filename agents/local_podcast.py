@@ -123,7 +123,7 @@ def _via_podcastfy(source, length: str, tts: str, out_dir: Path) -> Path | None:
     conversation_config = {
         "word_count":        word_targets.get(length, 2000),
         "conversation_style": ["engaging", "educational", "thought-provoking"],
-        "podcast_name":      "Brain University",
+        "podcast_name":      "Train of Thought",
         "podcast_tagline":   "Papers, deconstructed.",
         "output_language":   "English",
         "dialogue_structure": ["Hook", "Setup", "Core insight",

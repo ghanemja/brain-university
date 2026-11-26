@@ -158,7 +158,7 @@ def _render_slide(*, head: str, body: str, kind: str, style: dict,
     # Footer brand strip
     draw.rectangle([(0, CANVAS[1] - 36), (CANVAS[0], CANVAS[1])],
                    fill=style["accent"])
-    draw.text((40, CANVAS[1] - 30), "🎓 Brain University", font=f_caption,
+    draw.text((40, CANVAS[1] - 30), "Train of Thought", font=f_caption,
                fill=style["caption"])
 
     return img

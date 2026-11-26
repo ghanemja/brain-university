@@ -191,7 +191,7 @@ def _render_visual(visual: str, speaker: str, out: Path, style: str = "dark"):
 
     # Brand footer
     draw.rectangle([(0, CANVAS[1] - 40), (CANVAS[0], CANVAS[1])], fill=bar_color)
-    draw.text((40, CANVAS[1] - 32), "Brain University · Podcast",
+    draw.text((40, CANVAS[1] - 32), "Train of Thought · Podcast",
               font=f_small, fill=pal["bg"])
     img.save(out, format="PNG")
 
